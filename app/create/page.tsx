@@ -1,0 +1,519 @@
+'use client'
+
+import Link from 'next/link'
+import { useRouter } from 'next/navigation'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { ArrowLeft, Eye, Library, Check, X, Calendar } from 'lucide-react'
+import { SiteHeader } from '@/components/site-header'
+import { TypePicker } from '@/components/type-picker'
+import { QuestionEditor } from '@/components/question-editor'
+import { BankDialog } from '@/components/bank-dialog'
+import { PreviewDialog } from '@/components/preview-dialog'
+import {
+  createTest,
+  blankQuestion,
+  saveDraft,
+  loadDraft,
+  clearDraft,
+  saveToBank,
+  possiblePoints,
+  type Question,
+  type QType,
+  type Test,
+} from '@/lib/store'
+
+const TIME_OPTIONS = ['Off', '15m', '30m', '60m'] as const
+type TimeOpt = (typeof TIME_OPTIONS)[number]
+
+const fieldCls =
+  'rounded-[10px] border border-border bg-background px-3 py-2 text-sm text-foreground outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/20'
+
+function toLocalInput(ms: number | null): string {
+  if (!ms) return ''
+  const d = new Date(ms)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+export default function CreatePage() {
+  const router = useRouter()
+
+  const [title, setTitle] = useState('')
+  const [timeLimit, setTimeLimit] = useState<TimeOpt>('15m')
+  const [shuffle, setShuffle] = useState(true)
+  const [singleAttempt, setSingleAttempt] = useState(false)
+  const [questions, setQuestions] = useState<Question[]>([])
+  const [recentType, setRecentType] = useState<QType>('multiple_choice')
+
+  const [customCode, setCustomCode] = useState('')
+  const [opensAt, setOpensAt] = useState('')
+  const [closesAt, setClosesAt] = useState('')
+
+  const [previewOpen, setPreviewOpen] = useState(false)
+  const [bankOpen, setBankOpen] = useState(false)
+  const [bankTarget, setBankTarget] = useState<Question | null>(null)
+
+  const [loaded, setLoaded] = useState(false)
+  const [savedAt, setSavedAt] = useState<number | null>(null)
+  const [publishing, setPublishing] = useState(false)
+  const [publishError, setPublishError] = useState<string | null>(null)
+
+  /* ---------- autosave: load once, then persist on change ---------- */
+  useEffect(() => {
+    const d = loadDraft()
+    if (d) {
+      setTitle(d.title)
+      setCustomCode(d.code ?? '')
+      setTimeLimit((d.timeLimit as TimeOpt) ?? '15m')
+      setShuffle(d.shuffle)
+      setSingleAttempt(d.singleAttempt)
+      setQuestions(d.questions)
+      setOpensAt(toLocalInput(d.opensAt))
+      setClosesAt(toLocalInput(d.closesAt))
+      if (d.questions.length) setRecentType(d.questions[d.questions.length - 1].type)
+    }
+    setLoaded(true)
+  }, [])
+
+  useEffect(() => {
+    if (!loaded) return
+    const t = setTimeout(() => {
+      saveDraft({
+        title,
+        code: customCode,
+        timeLimit,
+        shuffle,
+        singleAttempt,
+        questions,
+        opensAt: opensAt ? new Date(opensAt).getTime() : null,
+        closesAt: closesAt ? new Date(closesAt).getTime() : null,
+      })
+      setSavedAt(Date.now())
+    }, 1200)
+    return () => clearTimeout(t)
+  }, [
+    loaded,
+    title,
+    customCode,
+    timeLimit,
+    shuffle,
+    singleAttempt,
+    questions,
+    opensAt,
+    closesAt,
+  ])
+
+  /* ---------- question mutations ---------- */
+  function addQuestion(type: QType) {
+    setQuestions((qs) => [...qs, blankQuestion(type)])
+    setRecentType(type)
+  }
+  function updateQuestion(q: Question) {
+    setQuestions((qs) => qs.map((x) => (x.id === q.id ? q : x)))
+  }
+  function removeQuestion(id: string) {
+    setQuestions((qs) => qs.filter((x) => x.id !== id))
+  }
+  function insertMany(items: Question[]) {
+    setQuestions((qs) => [...qs, ...items])
+    if (items.length) setRecentType(items[items.length - 1].type)
+  }
+
+  /* ---------- drag reorder (pointer-based) ---------- */
+  const dragIndex = useRef<number | null>(null)
+  const handleMove = useCallback((e: PointerEvent) => {
+    const el = document
+      .elementFromPoint(e.clientX, e.clientY)
+      ?.closest('[data-qcard]')
+    if (!el) return
+    const to = Number(el.getAttribute('data-qcard'))
+    const from = dragIndex.current
+    if (from === null || Number.isNaN(to) || to === from) return
+    setQuestions((qs) => {
+      const next = [...qs]
+      const [moved] = next.splice(from, 1)
+      next.splice(to, 0, moved)
+      return next
+    })
+    dragIndex.current = to
+  }, [])
+  const handleUp = useCallback(() => {
+    dragIndex.current = null
+    window.removeEventListener('pointermove', handleMove)
+    window.removeEventListener('pointerup', handleUp)
+  }, [handleMove])
+  const startDrag = useCallback(
+    (index: number) => {
+      dragIndex.current = index
+      window.addEventListener('pointermove', handleMove)
+      window.addEventListener('pointerup', handleUp)
+    },
+    [handleMove, handleUp],
+  )
+
+  function requestSaveToBank(q: Question) {
+    setBankTarget(q)
+  }
+
+  /* ---------- publish ---------- */
+  const canPublish =
+    title.trim().length > 0 && questions.length > 0 && !publishing
+  const totalPoints = possiblePoints({ questions } as Test)
+
+  async function handlePublish() {
+    if (!canPublish) return
+    setPublishing(true)
+    setPublishError(null)
+    const res = await createTest({
+      title: title.trim(),
+      code: customCode.trim() ? customCode.trim() : undefined,
+      timeLimit,
+      shuffle,
+      singleAttempt,
+      questions,
+      opensAt: opensAt ? new Date(opensAt).getTime() : null,
+      closesAt: closesAt ? new Date(closesAt).getTime() : null,
+    })
+    if (!res.ok) {
+      setPublishError(res.error)
+      setPublishing(false)
+      return
+    }
+    clearDraft()
+    router.push(`/test/${res.id}?created=1`)
+  }
+
+  return (
+    <div className="min-h-screen bg-background">
+      <SiteHeader
+        maxWidth="max-w-3xl"
+        right={
+          <div className="flex items-center gap-4">
+            {savedAt ? (
+              <span className="hidden items-center gap-1.5 font-mono text-xs text-muted-foreground sm:flex">
+                <Check className="size-3.5 text-primary" aria-hidden />
+                Autosaved
+              </span>
+            ) : null}
+            <Link
+              href="/dashboard"
+              className="flex items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
+            >
+              <ArrowLeft className="size-4" aria-hidden />
+              Dashboard
+            </Link>
+          </div>
+        }
+      />
+
+      <main className="mx-auto max-w-3xl px-4 py-8 sm:px-6 sm:py-10">
+        <div className="mb-8 flex flex-col gap-1">
+          <h1 className="font-heading text-xl font-semibold tracking-tight text-foreground sm:text-2xl">
+            Create a test
+          </h1>
+          <p className="text-sm text-muted-foreground">
+            Mix any question types you like. Publish, then share the code — no
+            account needed to take it.
+          </p>
+        </div>
+
+        {/* details */}
+        <section className="mb-6 flex flex-col gap-5 rounded-[16px] border border-border bg-card p-4 shadow-soft sm:p-6">
+          <label className="flex flex-col gap-2">
+            <span className="text-sm font-medium text-foreground">Test title</span>
+            <input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="e.g. Cell Biology — Unit 4"
+              className={fieldCls}
+            />
+          </label>
+
+          <div className="flex flex-col gap-2">
+            <span className="text-sm font-medium text-foreground">Time limit</span>
+            <div className="flex items-center gap-1 self-start rounded-[10px] border border-border bg-background p-1">
+              {TIME_OPTIONS.map((opt) => (
+                <button
+                  key={opt}
+                  type="button"
+                  onClick={() => setTimeLimit(opt)}
+                  className={`rounded-[7px] px-3 py-1 font-mono text-xs transition-colors ${
+                    opt === timeLimit
+                      ? 'bg-primary text-primary-foreground'
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  {opt}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <ToggleRow
+            label="Shuffle questions"
+            description="Randomize order for each test-taker."
+            checked={shuffle}
+            onChange={setShuffle}
+          />
+          <ToggleRow
+            label="Single attempt"
+            description="A code can't be reused from the same device once submitted."
+            checked={singleAttempt}
+            onChange={setSingleAttempt}
+          />
+        </section>
+
+        {/* sharing, scheduling & branding — available to everyone */}
+        <section className="mb-6 flex flex-col gap-5 rounded-[16px] border border-border bg-card p-4 shadow-soft sm:p-6">
+          <span className="font-mono text-xs uppercase tracking-[0.15em] text-muted-foreground">
+            Sharing &amp; scheduling
+          </span>
+          <p className="-mt-2 text-xs text-muted-foreground text-pretty">
+            Set a memorable code and an optional open/close window. No account
+            needed to take the test.
+          </p>
+
+          {/* custom code */}
+          <label className="flex flex-col gap-2">
+            <span className="text-sm font-medium text-foreground">
+              Custom share code
+            </span>
+            <input
+              value={customCode}
+              onChange={(e) => setCustomCode(e.target.value)}
+              placeholder="e.g. mrsmith-algebra1 — or leave blank for a random one"
+              className={`${fieldCls} font-mono`}
+            />
+          </label>
+
+          {/* scheduling */}
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label className="flex flex-col gap-2">
+              <span className="flex items-center gap-2 text-sm font-medium text-foreground">
+                <Calendar className="size-3.5 text-primary" aria-hidden />
+                Auto-open
+              </span>
+              <input
+                type="datetime-local"
+                value={opensAt}
+                onChange={(e) => setOpensAt(e.target.value)}
+                className={`${fieldCls} w-full`}
+              />
+            </label>
+            <label className="flex flex-col gap-2">
+              <span className="flex items-center gap-2 text-sm font-medium text-foreground">
+                <Calendar className="size-3.5 text-primary" aria-hidden />
+                Auto-close
+              </span>
+              <input
+                type="datetime-local"
+                value={closesAt}
+                onChange={(e) => setClosesAt(e.target.value)}
+                className={`${fieldCls} w-full`}
+              />
+            </label>
+          </div>
+        </section>
+
+        {/* assist bar */}
+        <div className="mb-4 flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setBankOpen(true)}
+            className="flex items-center gap-2 rounded-[10px] border border-border bg-card px-3 py-2 text-sm font-medium text-foreground shadow-soft transition-colors hover:bg-secondary"
+          >
+            <Library className="size-4 text-primary" aria-hidden />
+            Question bank
+          </button>
+          <button
+            type="button"
+            onClick={() => setPreviewOpen(true)}
+            disabled={questions.length === 0}
+            className="flex items-center gap-2 rounded-[10px] border border-border bg-card px-3 py-2 text-sm font-medium text-foreground shadow-soft transition-colors hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <Eye className="size-4 text-primary" aria-hidden />
+            Preview as test-taker
+          </button>
+        </div>
+
+        {/* questions */}
+        <div className="flex flex-col gap-4">
+          {questions.map((q, i) => (
+            <div key={q.id} data-qcard={i}>
+              <QuestionEditor
+                question={q}
+                index={i}
+                onChange={updateQuestion}
+                onRemove={() => removeQuestion(q.id)}
+                onSaveToBank={() => requestSaveToBank(q)}
+                onHandlePointerDown={() => startDrag(i)}
+              />
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-4">
+          <TypePicker recentType={recentType} onPick={addQuestion} />
+        </div>
+
+        {questions.length === 0 ? (
+          <p className="mt-4 text-center text-sm text-muted-foreground">
+            Add your first question — pick any type. Mix and match freely.
+          </p>
+        ) : null}
+
+        {/* publish bar */}
+        <div className="sticky bottom-4 mt-8 flex flex-col gap-3 rounded-[16px] border border-border bg-card p-4 shadow-soft-lg sm:bottom-6 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+          <span className="text-sm text-muted-foreground text-pretty">
+            {publishError ? (
+              <span className="text-destructive">{publishError}</span>
+            ) : (
+              <>
+                {questions.length}{' '}
+                {questions.length === 1 ? 'question' : 'questions'} ·{' '}
+                {totalPoints} {totalPoints === 1 ? 'pt' : 'pts'}
+                {title.trim().length === 0 || questions.length === 0
+                  ? ' · add a title and a question to publish'
+                  : ' · ready to share'}
+              </>
+            )}
+          </span>
+          <button
+            type="button"
+            onClick={handlePublish}
+            disabled={!canPublish}
+            className="w-full shrink-0 rounded-[12px] bg-primary px-6 py-3 text-sm font-medium text-primary-foreground shadow-soft transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40 sm:w-auto sm:py-2.5"
+          >
+            {publishing ? 'Publishing…' : 'Publish test'}
+          </button>
+        </div>
+      </main>
+
+      {/* dialogs */}
+      <PreviewDialog
+        open={previewOpen}
+        title={title}
+        questions={questions}
+        onClose={() => setPreviewOpen(false)}
+      />
+      <BankDialog
+        open={bankOpen}
+        onClose={() => setBankOpen(false)}
+        onInsert={(q) => {
+          insertMany([q])
+          setBankOpen(false)
+        }}
+      />
+      <SubjectDialog
+        question={bankTarget}
+        onClose={() => setBankTarget(null)}
+        onSave={(subject, q) => {
+          saveToBank(subject, q)
+          setBankTarget(null)
+        }}
+      />
+    </div>
+  )
+}
+
+/* ---------- inline helpers ---------- */
+
+function ToggleRow({
+  label,
+  description,
+  checked,
+  onChange,
+}: {
+  label: string
+  description?: string
+  checked: boolean
+  onChange: (v: boolean) => void
+}) {
+  return (
+    <div className="flex items-center justify-between gap-4">
+      <span className="flex flex-col gap-0.5">
+        <span className="text-sm font-medium text-foreground">{label}</span>
+        {description ? (
+          <span className="text-xs text-muted-foreground text-pretty">
+            {description}
+          </span>
+        ) : null}
+      </span>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        aria-label={label}
+        onClick={() => onChange(!checked)}
+        className={`relative inline-flex h-6 w-10 shrink-0 items-center rounded-full transition-colors ${
+          checked ? 'bg-primary' : 'bg-secondary'
+        }`}
+      >
+        <span
+          className={`inline-block size-4 rounded-full bg-card shadow-soft transition-transform ${
+            checked ? 'translate-x-5' : 'translate-x-1'
+          }`}
+        />
+      </button>
+    </div>
+  )
+}
+
+function SubjectDialog({
+  question,
+  onClose,
+  onSave,
+}: {
+  question: Question | null
+  onClose: () => void
+  onSave: (subject: string, q: Question) => void
+}) {
+  const [subject, setSubject] = useState('')
+  if (!question) return null
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/40 p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Save to question bank"
+      onClick={onClose}
+    >
+      <div
+        className="flex w-full max-w-sm flex-col gap-4 rounded-[16px] border border-border bg-card p-6 shadow-soft-lg"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-start justify-between">
+          <span className="flex items-center gap-2 font-heading text-base font-semibold text-foreground">
+            <Library className="size-4 text-primary" aria-hidden />
+            Save to bank
+          </span>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+          >
+            <X className="size-4" aria-hidden />
+          </button>
+        </div>
+        <label className="flex flex-col gap-2 text-sm text-muted-foreground">
+          Subject tag
+          <input
+            autoFocus
+            value={subject}
+            onChange={(e) => setSubject(e.target.value)}
+            placeholder="e.g. Biology"
+            className={fieldCls}
+          />
+        </label>
+        <button
+          type="button"
+          onClick={() => onSave(subject.trim() || 'General', question)}
+          className="rounded-[12px] bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground shadow-soft transition-opacity hover:opacity-90"
+        >
+          Save question
+        </button>
+      </div>
+    </div>
+  )
+}

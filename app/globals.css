@@ -1,0 +1,83 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+@import 'shadcn/tailwind.css';
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --font-sans: var(--font-manrope);
+  --font-heading: var(--font-sora);
+  --font-mono: var(--font-plex-mono);
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-amber: var(--amber);
+  --color-amber-foreground: var(--amber-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+:root {
+  color-scheme: light;
+  --background: #f7f3ec;
+  --foreground: #2b2620;
+  --card: #fdfbf7;
+  --card-foreground: #2b2620;
+  --popover: #fdfbf7;
+  --popover-foreground: #2b2620;
+  --primary: #5c8166;
+  --primary-foreground: #fbfdf9;
+  --secondary: #efe9dd;
+  --secondary-foreground: #2b2620;
+  --muted: #efe9dd;
+  --muted-foreground: #8c8375;
+  --accent: #eef2ec;
+  --accent-foreground: #3a4f3f;
+  --amber: #c99a3e;
+  --amber-foreground: #4a3813;
+  --destructive: #b3543f;
+  --border: #e8e1d4;
+  --input: #e8e1d4;
+  --ring: #5c8166;
+  --radius: 1rem;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+@utility shadow-soft {
+  box-shadow:
+    0 1px 2px rgba(43, 38, 32, 0.04),
+    0 8px 20px rgba(43, 38, 32, 0.06);
+}
+
+@utility shadow-soft-lg {
+  box-shadow:
+    0 1px 2px rgba(43, 38, 32, 0.05),
+    0 16px 40px rgba(43, 38, 32, 0.09);
+}
