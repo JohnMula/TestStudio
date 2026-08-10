@@ -49,6 +49,14 @@ function download(filename: string, content: string, type: string) {
   URL.revokeObjectURL(url)
 }
 
+/* A cell starting with =, +, -, or @ is read as a formula by Excel/
+   Sheets even when it's inside quotes — quoting only protects against
+   commas and stray quote characters, not against CSV injection. A
+   leading apostrophe forces it to be read as literal text instead. */
+function csvSafe(value: string): string {
+  return /^[=+\-@]/.test(value) ? `'${value}` : value
+}
+
 function exportCsv(test: Test) {
   const possible = possiblePoints(test)
   const rows = [
@@ -56,7 +64,7 @@ function exportCsv(test: Test) {
     ...test.responses.map((r) => {
       const earned = responseEarned(test, r)
       return [
-        r.takerName,
+        csvSafe(r.takerName),
         new Date(r.submittedAt).toISOString(),
         String(earned),
         String(possible),

@@ -7,6 +7,7 @@ import useSWR from 'swr'
 import { Trophy, ArrowRight, Clock, Lock, Loader2 } from 'lucide-react'
 import { SiteHeader } from '@/components/site-header'
 import { QuestionTaker } from '@/components/question-taker'
+import { TurnstileWidget } from '@/components/turnstile-widget'
 import { getPublicTestByCode, submitResponse } from '@/lib/actions'
 import { possiblePointsPublic } from '@/lib/store'
 
@@ -32,6 +33,13 @@ export default function TakeTestPage() {
   const [result, setResult] = useState<Result | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [captchaToken, setCaptchaToken] = useState('')
+
+  // Mirrors the check inside TurnstileWidget: only require a token
+  // when the site is actually configured for it, so the submit
+  // button isn't stuck disabled on a deployment that hasn't set up
+  // NEXT_PUBLIC_TURNSTILE_SITE_KEY yet.
+  const turnstileConfigured = Boolean(process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY)
 
   // shuffle order once, if enabled
   const order = useMemo(() => {
@@ -104,10 +112,11 @@ export default function TakeTestPage() {
     if (!test || submitting) return
     setSubmitting(true)
     setError(null)
-    const res = await submitResponse(test.id, answers, name)
+    const res = await submitResponse(test.id, answers, name, captchaToken)
     setSubmitting(false)
     if (!res.ok) {
       setError(res.error)
+      setCaptchaToken('') // tokens are single-use — the widget issues a fresh one
       return
     }
     setResult({
@@ -194,24 +203,27 @@ export default function TakeTestPage() {
             </p>
           ) : null}
 
-          <button
-            type="button"
-            onClick={submit}
-            disabled={submitting}
-            className="flex w-full items-center justify-center gap-2 rounded-[12px] bg-primary px-6 py-3.5 text-sm font-medium text-primary-foreground shadow-soft transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto sm:self-end sm:py-3"
-          >
-            {submitting ? (
-              <>
-                <Loader2 className="size-4 animate-spin" aria-hidden />
-                Submitting…
-              </>
-            ) : (
-              <>
-                Submit test
-                <ArrowRight className="size-4" aria-hidden />
-              </>
-            )}
-          </button>
+          <div className="flex flex-col items-end gap-3 sm:flex-row sm:items-center sm:justify-end">
+            <TurnstileWidget onVerify={setCaptchaToken} />
+            <button
+              type="button"
+              onClick={submit}
+              disabled={submitting || (turnstileConfigured && !captchaToken)}
+              className="flex w-full items-center justify-center gap-2 rounded-[12px] bg-primary px-6 py-3.5 text-sm font-medium text-primary-foreground shadow-soft transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto sm:py-3"
+            >
+              {submitting ? (
+                <>
+                  <Loader2 className="size-4 animate-spin" aria-hidden />
+                  Submitting…
+                </>
+              ) : (
+                <>
+                  Submit test
+                  <ArrowRight className="size-4" aria-hidden />
+                </>
+              )}
+            </button>
+          </div>
         </section>
       ) : null}
 

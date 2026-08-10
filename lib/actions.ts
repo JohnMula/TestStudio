@@ -5,12 +5,20 @@ import {
   gradeQuestion,
   makeCode,
   toPublicQuestion,
+  validateCreateTestInput,
   type CreateTestInput,
   type PublicTest,
   type Question,
   type Response,
   type Test,
 } from '@/lib/types'
+import {
+  rateLimitCreateTest,
+  rateLimitSubmitResponse,
+  rateLimitCodeLookup,
+  getClientIp,
+} from '@/lib/rate-limit'
+import { verifyTurnstileToken } from '@/lib/turnstile'
 
 /* ============================================================
    Row <-> domain mapping
@@ -140,15 +148,27 @@ export async function getTest(id: string): Promise<Test | null> {
 /* Answer-free payload for test-takers. Correct answers, alternates,
    and matching pairings are stripped server-side and never sent.
    Deliberately still on the service-role client: taking a test never
-   requires an account, and there's no "owner" concept for a taker. */
+   requires an account, and there's no "owner" concept for a taker.
+
+   Rate-limited (per ip) since this is the code-guessing surface — and
+   uses an exact .eq() on the normalized code rather than .ilike(),
+   since % and _ are unescaped wildcards in Postgres LIKE/ILIKE and
+   codes are meant to match exactly or not at all. Returns null (same
+   as "not found") when rate-limited, so callers need no new handling. */
 export async function getPublicTestByCode(
   code: string,
 ): Promise<PublicTest | null> {
+  const limited = await rateLimitCodeLookup()
+  if (!limited.allowed) return null
+
+  const normalized = code.trim().toUpperCase()
+  if (!normalized) return null
+
   const db = createServiceClient()
   const { data: test, error } = await db
     .from('tests')
     .select('*')
-    .ilike('code', code.trim())
+    .eq('code', normalized)
     .maybeSingle()
   if (error) throw new Error(error.message)
   if (!test) return null
@@ -174,10 +194,12 @@ export async function getPublicTestByCode(
 
 /* Deliberately on the service-role client, not the per-user one:
    test codes have to be unique across every owner, not just the
-   current browser's own tests, so this needs to see every row. */
+   current browser's own tests, so this needs to see every row.
+   Exact match on the normalized code, same reasoning as
+   getPublicTestByCode — .ilike() left % and _ unescaped. */
 async function codeExists(code: string, exceptId?: string): Promise<boolean> {
   const db = createServiceClient()
-  let query = db.from('tests').select('id').ilike('code', code)
+  let query = db.from('tests').select('id').eq('code', code.trim().toUpperCase())
   if (exceptId) query = query.neq('id', exceptId)
   const { data, error } = await query.limit(1)
   if (error) throw new Error(error.message)
@@ -191,6 +213,12 @@ export type CreateTestResult =
 export async function createTest(
   input: CreateTestInput,
 ): Promise<CreateTestResult> {
+  const limited = await rateLimitCreateTest()
+  if (!limited.allowed) return { ok: false, error: limited.error }
+
+  const validationError = validateCreateTestInput(input)
+  if (validationError) return { ok: false, error: validationError }
+
   const db = await createClient()
 
   let code = input.code?.trim().toUpperCase() || ''
@@ -286,7 +314,20 @@ export async function submitResponse(
   testId: string,
   rawAnswers: Record<string, unknown>,
   takerName: string,
+  captchaToken: string,
 ): Promise<SubmitResult> {
+  const limited = await rateLimitSubmitResponse(testId)
+  if (!limited.allowed) return { ok: false, error: limited.error }
+
+  const ip = await getClientIp()
+  const verified = await verifyTurnstileToken(captchaToken, ip)
+  if (!verified) {
+    return {
+      ok: false,
+      error: 'Verification failed. Please refresh and try again.',
+    }
+  }
+
   const db = createServiceClient()
   const { data: test, error } = await db
     .from('tests')
@@ -342,6 +383,20 @@ export async function gradeEssay(
   questionId: string,
   points: number,
 ): Promise<void> {
+  // Ownership check, closing the IDOR gap: this SELECT goes through the
+  // RLS-scoped client, so it only returns a row if the "tests_select_own"
+  // policy allows it — i.e. this browser's anonymous auth.uid() actually
+  // owns testId. A stranger's testId resolves to null here, before any
+  // write happens. Same idiom duplicateTest() already relies on above.
+  const rls = await createClient()
+  const { data: owned, error: ownErr } = await rls
+    .from('tests')
+    .select('id')
+    .eq('id', testId)
+    .maybeSingle()
+  if (ownErr) throw new Error(ownErr.message)
+  if (!owned) throw new Error('You do not have permission to grade this response.')
+
   const db = createServiceClient()
 
   const [{ data: test, error: tErr }, { data: response, error: rErr }] =

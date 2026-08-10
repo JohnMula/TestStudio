@@ -408,3 +408,125 @@ export type CreateTestInput = {
   opensAt?: number | null
   closesAt?: number | null
 }
+
+/* ---------- server-side size limits ----------
+   createTest() used to insert whatever shape of questions array the
+   client sent, with no cap on count or string length. These numbers
+   are generous for a genuinely large test but bounded, so a scripted
+   flood of oversized payloads can't push unbounded data into the row. */
+
+export const LIMITS = {
+  title: 200,
+  questionCount: 200,
+  prompt: 5000,
+  explanation: 5000,
+  optionCount: 20,
+  optionText: 500,
+  pairCount: 50,
+  pairText: 500,
+  blankCount: 50,
+  blankAnswerCount: 20,
+  enumAnswerCount: 100,
+  answerText: 500,
+  alternateCount: 50,
+} as const
+
+function tooLong(value: string, max: number, label: string): string | null {
+  return value.length > max ? `${label} is too long (max ${max} characters).` : null
+}
+
+/* Returns an error message, or null if the input is within limits.
+   Called at the top of createTest(), before anything touches the DB. */
+export function validateCreateTestInput(input: CreateTestInput): string | null {
+  if (!input.title?.trim()) return 'Title is required.'
+  const titleErr = tooLong(input.title, LIMITS.title, 'Title')
+  if (titleErr) return titleErr
+
+  if (!Array.isArray(input.questions) || input.questions.length === 0) {
+    return 'At least one question is required.'
+  }
+  if (input.questions.length > LIMITS.questionCount) {
+    return `Too many questions (max ${LIMITS.questionCount}).`
+  }
+
+  for (const [i, q] of input.questions.entries()) {
+    const n = i + 1
+    const promptErr = tooLong(q.prompt ?? '', LIMITS.prompt, `Question ${n} prompt`)
+    if (promptErr) return promptErr
+    if (q.explanation) {
+      const expErr = tooLong(
+        q.explanation,
+        LIMITS.explanation,
+        `Question ${n} explanation`,
+      )
+      if (expErr) return expErr
+    }
+
+    switch (q.type) {
+      case 'multiple_choice': {
+        if (q.options.length > LIMITS.optionCount) {
+          return `Question ${n}: too many options (max ${LIMITS.optionCount}).`
+        }
+        for (const opt of q.options) {
+          const e = tooLong(opt, LIMITS.optionText, `Question ${n} option`)
+          if (e) return e
+        }
+        break
+      }
+      case 'identification': {
+        const e1 = tooLong(q.answer ?? '', LIMITS.answerText, `Question ${n} answer`)
+        if (e1) return e1
+        if (q.alternates.length > LIMITS.alternateCount) {
+          return `Question ${n}: too many alternates (max ${LIMITS.alternateCount}).`
+        }
+        for (const alt of q.alternates) {
+          const e = tooLong(alt, LIMITS.answerText, `Question ${n} alternate`)
+          if (e) return e
+        }
+        break
+      }
+      case 'matching': {
+        if (q.pairs.length > LIMITS.pairCount) {
+          return `Question ${n}: too many pairs (max ${LIMITS.pairCount}).`
+        }
+        for (const p of q.pairs) {
+          const e1 = tooLong(p.left, LIMITS.pairText, `Question ${n} pair`)
+          if (e1) return e1
+          const e2 = tooLong(p.right, LIMITS.pairText, `Question ${n} pair`)
+          if (e2) return e2
+        }
+        break
+      }
+      case 'fill_blank': {
+        if (q.blanks.length > LIMITS.blankCount) {
+          return `Question ${n}: too many blanks (max ${LIMITS.blankCount}).`
+        }
+        for (const b of q.blanks) {
+          if (b.answers.length > LIMITS.blankAnswerCount) {
+            return `Question ${n}: too many accepted answers for a blank (max ${LIMITS.blankAnswerCount}).`
+          }
+          for (const a of b.answers) {
+            const e = tooLong(a, LIMITS.answerText, `Question ${n} blank answer`)
+            if (e) return e
+          }
+        }
+        break
+      }
+      case 'enumeration': {
+        if (q.answers.length > LIMITS.enumAnswerCount) {
+          return `Question ${n}: too many answers (max ${LIMITS.enumAnswerCount}).`
+        }
+        for (const a of q.answers) {
+          const e = tooLong(a, LIMITS.answerText, `Question ${n} answer`)
+          if (e) return e
+        }
+        break
+      }
+      case 'true_false':
+      case 'essay':
+        break
+    }
+  }
+
+  return null
+}
