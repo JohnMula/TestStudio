@@ -1,6 +1,6 @@
 'use server'
 
-import { createServiceClient } from '@/lib/supabase/server'
+import { createServiceClient, createClient } from '@/lib/supabase/server'
 import {
   gradeQuestion,
   makeCode,
@@ -84,8 +84,10 @@ function mapTest(row: TestRow, responses: ResponseRow[]): Test {
    Reads
    ============================================================ */
 
+/* RLS-scoped ("tests_select_own"): only returns tests owned by this
+   browser's anonymous auth user. */
 export async function listTests(): Promise<Test[]> {
-  const db = createServiceClient()
+  const db = await createClient()
   const { data: tests, error } = await db
     .from('tests')
     .select('*')
@@ -114,8 +116,10 @@ export async function listTests(): Promise<Test[]> {
   return rows.map((t) => mapTest(t, byTest.get(t.id) ?? []))
 }
 
+/* RLS-scoped, same as listTests — resolves to null if this id
+   doesn't exist OR belongs to a different anonymous identity. */
 export async function getTest(id: string): Promise<Test | null> {
-  const db = createServiceClient()
+  const db = await createClient()
   const { data: test, error } = await db
     .from('tests')
     .select('*')
@@ -134,7 +138,9 @@ export async function getTest(id: string): Promise<Test | null> {
 }
 
 /* Answer-free payload for test-takers. Correct answers, alternates,
-   and matching pairings are stripped server-side and never sent. */
+   and matching pairings are stripped server-side and never sent.
+   Deliberately still on the service-role client: taking a test never
+   requires an account, and there's no "owner" concept for a taker. */
 export async function getPublicTestByCode(
   code: string,
 ): Promise<PublicTest | null> {
@@ -166,6 +172,9 @@ export async function getPublicTestByCode(
    Writes
    ============================================================ */
 
+/* Deliberately on the service-role client, not the per-user one:
+   test codes have to be unique across every owner, not just the
+   current browser's own tests, so this needs to see every row. */
 async function codeExists(code: string, exceptId?: string): Promise<boolean> {
   const db = createServiceClient()
   let query = db.from('tests').select('id').ilike('code', code)
@@ -182,7 +191,7 @@ export type CreateTestResult =
 export async function createTest(
   input: CreateTestInput,
 ): Promise<CreateTestResult> {
-  const db = createServiceClient()
+  const db = await createClient()
 
   let code = input.code?.trim().toUpperCase() || ''
   if (code) {
@@ -194,6 +203,9 @@ export async function createTest(
     while (await codeExists(code)) code = makeCode()
   }
 
+  // owner_id isn't set explicitly — it defaults to auth.uid() at the
+  // database level (see the SQL migration), which is this browser's
+  // anonymous auth user.
   const { data, error } = await db
     .from('tests')
     .insert({
@@ -213,14 +225,18 @@ export async function createTest(
   return { ok: true, id: (data as { id: string }).id }
 }
 
+/* RLS ("tests_delete_own") makes this a no-op if the caller doesn't
+   own the row — no separate ownership check needed here. */
 export async function deleteTest(id: string): Promise<void> {
-  const db = createServiceClient()
+  const db = await createClient()
   const { error } = await db.from('tests').delete().eq('id', id)
   if (error) throw new Error(error.message)
 }
 
 export async function duplicateTest(id: string): Promise<{ id: string } | null> {
-  const db = createServiceClient()
+  const db = await createClient()
+  // RLS ("tests_select_own") means this SELECT only succeeds for a
+  // test this browser owns — a stranger's test id resolves to null.
   const { data: src, error } = await db
     .from('tests')
     .select('*')
@@ -233,6 +249,8 @@ export async function duplicateTest(id: string): Promise<{ id: string } | null> 
   let code = makeCode()
   while (await codeExists(code)) code = makeCode()
 
+  // Same as createTest: owner_id defaults to auth.uid(), so the copy
+  // belongs to whoever duplicated it.
   const { data, error: insErr } = await db
     .from('tests')
     .insert({
@@ -261,7 +279,9 @@ export type SubmitResult =
   | { ok: false; error: string }
 
 /* Grading happens here, on the server, using the full (private)
-   question definitions — the taker's browser never sees the key. */
+   question definitions — the taker's browser never sees the key.
+   Stays on the service-role client, same as before: submitting a
+   response never requires an account or ownership of the test. */
 export async function submitResponse(
   testId: string,
   rawAnswers: Record<string, unknown>,

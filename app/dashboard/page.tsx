@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { useState } from 'react'
-import { Plus, Users, HelpCircle, ArrowRight, KeyRound } from 'lucide-react'
+import { Plus, Users, HelpCircle, ArrowRight, KeyRound, Settings } from 'lucide-react'
 import { SiteHeader } from '@/components/site-header'
 import { useTests } from '@/lib/store'
 import { useRouter } from 'next/navigation'
@@ -26,17 +26,18 @@ export default function DashboardPage() {
         right={
           <>
             <Link
-              href="/settings"
-              className="text-sm text-muted-foreground transition-colors hover:text-foreground"
-            >
-              Settings
-            </Link>
-            <Link
               href="/create"
               className="flex items-center gap-2 rounded-[12px] bg-primary px-3 py-2 text-sm font-medium text-primary-foreground shadow-soft transition-opacity hover:opacity-90 sm:px-4"
             >
               <Plus className="size-4" aria-hidden />
               New test
+            </Link>
+            <Link
+              href="/settings"
+              aria-label="Settings"
+              className="inline-flex size-9 items-center justify-center rounded-[10px] border border-border bg-card text-foreground shadow-soft transition-colors hover:bg-secondary"
+            >
+              <Settings className="size-4" aria-hidden />
             </Link>
           </>
         }

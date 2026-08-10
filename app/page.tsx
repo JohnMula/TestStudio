@@ -1,3 +1,4 @@
+import Image from 'next/image'
 import Link from 'next/link'
 import { KeyRound, Infinity as InfinityIcon, Download } from 'lucide-react'
 import { TicketCard } from '@/components/ticket-card'
@@ -26,9 +27,20 @@ export default function LandingPage() {
     <div className="min-h-screen bg-background">
       {/* header */}
       <header className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4 sm:px-6 sm:py-6">
-        <span className="font-heading text-base font-semibold tracking-tight text-foreground sm:text-lg">
+        <Link
+          href="/"
+          className="flex items-center gap-2 font-heading text-base font-semibold tracking-tight text-foreground sm:text-lg"
+        >
+          <Image
+            src="/logo/t.png"
+            alt="TestStudio logo"
+            width={28}
+            height={28}
+            priority
+            className="rounded-md"
+          />
           TestStudio
-        </span>
+        </Link>
         <LandingNav />
       </header>
 

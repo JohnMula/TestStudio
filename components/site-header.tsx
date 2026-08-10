@@ -1,3 +1,4 @@
+import Image from 'next/image'
 import Link from 'next/link'
 import type { ReactNode } from 'react'
 
@@ -15,8 +16,16 @@ export function SiteHeader({
       >
         <Link
           href="/"
-          className="font-heading text-base font-semibold tracking-tight text-foreground sm:text-lg"
+          className="flex items-center gap-2 font-heading text-base font-semibold tracking-tight text-foreground sm:text-lg"
         >
+          <Image
+            src="/logo/t.png"
+            alt="TestStudio logo"
+            width={28}
+            height={28}
+            priority
+            className="rounded-md"
+          />
           TestStudio
         </Link>
         <nav className="flex items-center gap-3 sm:gap-5">{right}</nav>
