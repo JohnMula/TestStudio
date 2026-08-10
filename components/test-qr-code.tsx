@@ -7,9 +7,11 @@ import { Download, Loader2 } from 'lucide-react'
 export function TestQrCode({
   url,
   filename,
+  size = 152,
 }: {
   url: string
   filename: string
+  size?: number
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [ready, setReady] = useState(false)
@@ -21,7 +23,7 @@ export function TestQrCode({
       canvasRef.current,
       url,
       {
-        width: 152,
+        width: size,
         margin: 1,
         color: { dark: '#18181b', light: '#ffffff' },
       },
@@ -29,7 +31,7 @@ export function TestQrCode({
         if (!err) setReady(true)
       },
     )
-  }, [url])
+  }, [url, size])
 
   function handleDownload() {
     const canvas = canvasRef.current
@@ -42,12 +44,15 @@ export function TestQrCode({
 
   return (
     <div className="flex flex-col items-center gap-2 rounded-[12px] border border-border bg-background p-3">
-      <div className="relative flex size-[152px] items-center justify-center">
+      <div
+        className="relative flex items-center justify-center"
+        style={{ width: size, height: size }}
+      >
         <canvas
           ref={canvasRef}
           role="img"
           aria-label="QR code that opens this test"
-          className="size-[152px]"
+          style={{ width: size, height: size }}
         />
         {!ready ? (
           <Loader2

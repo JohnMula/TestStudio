@@ -37,7 +37,7 @@ export default function LandingPage() {
             width={28}
             height={28}
             priority
-            className="rounded-md"
+            className="rounded-[22%]"
           />
           TestStudio
         </Link>
@@ -65,10 +65,10 @@ export default function LandingPage() {
                 Create your first test
               </Link>
               <Link
-                href="/dashboard"
-                className="rounded-[12px] border border-border bg-card px-6 py-3 text-center text-base font-medium text-foreground shadow-soft transition-colors hover:bg-secondary"
+                href="/take-a-test"
+                className="rounded-[12px] bg-primary px-6 py-3 text-center text-base font-medium text-primary-foreground shadow-soft transition-opacity hover:opacity-90"
               >
-                View dashboard
+                Take a Test
               </Link>
             </div>
           </div>

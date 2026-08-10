@@ -67,7 +67,7 @@ export function LandingNav() {
                 alt="TestStudio logo"
                 width={26}
                 height={26}
-                className="rounded-md"
+                className="rounded-[22%]"
               />
               TestStudio
             </Link>

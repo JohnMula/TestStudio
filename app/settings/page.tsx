@@ -30,7 +30,7 @@ export default function SettingsPage() {
             width={26}
             height={26}
             priority
-            className="rounded-md"
+            className="rounded-[22%]"
           />
           TestStudio
         </Link>

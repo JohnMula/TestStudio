@@ -17,7 +17,6 @@ import {
 } from 'lucide-react'
 import { SiteHeader } from '@/components/site-header'
 import { TicketCard } from '@/components/ticket-card'
-import { TestQrCode } from '@/components/test-qr-code'
 import {
   useTest,
   deleteTest,
@@ -171,39 +170,33 @@ function TestDetail() {
             <span className="font-mono text-xs uppercase tracking-[0.15em] text-muted-foreground">
               Share
             </span>
-            <div className="flex flex-wrap items-start gap-4">
-              <div className="flex flex-1 flex-col gap-3">
-                <div className="flex flex-wrap items-center gap-3">
-                  <button
-                    type="button"
-                    onClick={copyCode}
-                    className="flex items-center gap-2 rounded-[10px] border border-border bg-background px-4 py-2 font-mono text-lg text-foreground transition-colors hover:bg-secondary"
-                  >
-                    {test.code}
-                    {copied ? (
-                      <Check className="size-4 text-primary" aria-hidden />
-                    ) : (
-                      <Copy className="size-4 text-muted-foreground" aria-hidden />
-                    )}
-                  </button>
-                  <Link
-                    href={`/take/${test.code}`}
-                    className="flex items-center gap-2 rounded-[10px] bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-soft transition-opacity hover:opacity-90"
-                  >
-                    <ExternalLink className="size-4" aria-hidden />
-                    Preview as taker
-                  </Link>
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  {copied ? 'Copied to clipboard.' : 'Anyone with this code can take the test.'}
-                </p>
+            <div className="flex flex-col gap-3">
+              <div className="flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  onClick={copyCode}
+                  className="flex items-center gap-2 rounded-[10px] border border-border bg-background px-4 py-2 font-mono text-lg text-foreground transition-colors hover:bg-secondary"
+                >
+                  {test.code}
+                  {copied ? (
+                    <Check className="size-4 text-primary" aria-hidden />
+                  ) : (
+                    <Copy className="size-4 text-muted-foreground" aria-hidden />
+                  )}
+                </button>
+                <Link
+                  href={`/take/${test.code}`}
+                  className="flex items-center gap-2 rounded-[10px] bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-soft transition-opacity hover:opacity-90"
+                >
+                  <ExternalLink className="size-4" aria-hidden />
+                  Preview as taker
+                </Link>
               </div>
-              {origin ? (
-                <TestQrCode
-                  url={`${origin}/take/${test.code}`}
-                  filename={`${test.title.replace(/\s+/g, '-')}-qr.png`}
-                />
-              ) : null}
+              <p className="text-xs text-muted-foreground">
+                {copied
+                  ? 'Copied to clipboard.'
+                  : 'Anyone with this code can take the test — or scan the QR code on the ticket.'}
+              </p>
             </div>
           </section>
 
@@ -282,12 +275,13 @@ function TestDetail() {
           </div>
         </div>
 
-        <div className="md:w-80">
+        <div className="md:w-96">
           <TicketCard
             title={test.title}
             questionCount={test.questions.length}
             timeLimit={test.timeLimit === 'Off' ? 'No limit' : test.timeLimit}
             code={test.code}
+            qrUrl={origin ? `${origin}/take/${test.code}` : undefined}
           />
         </div>
       </div>

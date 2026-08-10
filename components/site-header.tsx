@@ -24,7 +24,7 @@ export function SiteHeader({
             width={28}
             height={28}
             priority
-            className="rounded-md"
+            className="rounded-[22%]"
           />
           TestStudio
         </Link>
