@@ -17,6 +17,7 @@ import {
   clearDraft,
   saveToBank,
   possiblePoints,
+  loadSettings,
   type Question,
   type QType,
   type Test,
@@ -71,6 +72,13 @@ export default function CreatePage() {
       setOpensAt(toLocalInput(d.opensAt))
       setClosesAt(toLocalInput(d.closesAt))
       if (d.questions.length) setRecentType(d.questions[d.questions.length - 1].type)
+    } else {
+      // No draft yet — start from this browser's saved defaults
+      // (Settings page) instead of the hardcoded fallbacks.
+      const s = loadSettings()
+      setTimeLimit(s.defaultTimeLimit as TimeOpt)
+      setShuffle(s.defaultShuffle)
+      setSingleAttempt(s.defaultSingleAttempt)
     }
     setLoaded(true)
   }, [])

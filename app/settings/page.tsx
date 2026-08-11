@@ -42,7 +42,8 @@ export default function SettingsPage() {
             Settings
           </h1>
           <p className="text-sm text-muted-foreground">
-            Manage your account and the defaults for new tests.
+            Defaults for new tests, and export preferences, saved to this
+            browser.
           </p>
         </div>
 

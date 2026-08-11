@@ -165,3 +165,77 @@ export function clearDraft() {
     window.localStorage.removeItem(DRAFT_KEY)
   }
 }
+
+/* ============================================================
+   App settings — real, persisted preferences for the Settings
+   page. Two kinds of thing live here:
+
+     - defaults that pre-fill the create-test form (time limit,
+       shuffle, single-attempt). The published test still stores
+       its own values once created — this only affects what a
+       NEW test starts as, and can always be changed per test
+       before publishing.
+     - export preferences (whether a CSV export includes the
+       submitted-at column).
+
+   Same idiom as the draft/bank above: per-browser, in
+   localStorage, nothing sent to the server.
+   ============================================================ */
+
+const SETTINGS_KEY = 'teststudio.settings.v1'
+
+export type AppSettings = {
+  defaultTimeLimit: string
+  defaultShuffle: boolean
+  defaultSingleAttempt: boolean
+  exportIncludeTimestamps: boolean
+}
+
+export const DEFAULT_SETTINGS: AppSettings = {
+  defaultTimeLimit: '15m',
+  defaultShuffle: true,
+  defaultSingleAttempt: false,
+  exportIncludeTimestamps: true,
+}
+
+export function loadSettings(): AppSettings {
+  if (typeof window === 'undefined') return DEFAULT_SETTINGS
+  try {
+    const raw = window.localStorage.getItem(SETTINGS_KEY)
+    if (!raw) return DEFAULT_SETTINGS
+    return { ...DEFAULT_SETTINGS, ...(JSON.parse(raw) as Partial<AppSettings>) }
+  } catch {
+    return DEFAULT_SETTINGS
+  }
+}
+
+export function saveSettings(settings: AppSettings) {
+  if (typeof window === 'undefined') return
+  window.localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings))
+}
+
+/* ============================================================
+   Device id — a random per-browser identifier, used only to
+   enforce a test's "single attempt" lock (lib/actions.ts —
+   submitResponse, hasDeviceSubmitted). It is NOT an account: it
+   identifies this browser profile, not a person. Clearing site
+   data, using a different browser, or going incognito resets it —
+   this is a same-device convenience lock, not a strong identity
+   check, same as the original feature description promised.
+   ============================================================ */
+
+const DEVICE_KEY = 'teststudio.device.v1'
+
+export function getDeviceId(): string {
+  if (typeof window === 'undefined') return ''
+  try {
+    let id = window.localStorage.getItem(DEVICE_KEY)
+    if (!id) {
+      id = crypto.randomUUID()
+      window.localStorage.setItem(DEVICE_KEY, id)
+    }
+    return id
+  } catch {
+    return ''
+  }
+}

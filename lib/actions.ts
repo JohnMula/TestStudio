@@ -315,6 +315,7 @@ export async function submitResponse(
   rawAnswers: Record<string, unknown>,
   takerName: string,
   captchaToken: string,
+  deviceId: string,
 ): Promise<SubmitResult> {
   const limited = await rateLimitSubmitResponse(testId)
   if (!limited.allowed) return { ok: false, error: limited.error }
@@ -346,6 +347,36 @@ export async function submitResponse(
     return { ok: false, error: 'This test is closed.' }
   }
 
+  /* Single-attempt lock, closing the gap flagged in the security
+     review: single_attempt was stored on the row but nothing ever
+     read it back. Enforced by device id (lib/store.ts —
+     getDeviceId()) rather than an account, since takers never sign
+     in — this stops an accidental or casual retake, not someone who
+     deliberately clears site data or switches browsers. Requires a
+     device_id column on responses; see supabase/single_attempt.sql. */
+  if (row.single_attempt) {
+    if (!deviceId) {
+      return {
+        ok: false,
+        error: 'Could not verify this device. Please reload and try again.',
+      }
+    }
+    const { data: existing, error: existErr } = await db
+      .from('responses')
+      .select('id')
+      .eq('test_id', testId)
+      .eq('device_id', deviceId)
+      .limit(1)
+    if (existErr) return { ok: false, error: existErr.message }
+    if (existing && existing.length > 0) {
+      return {
+        ok: false,
+        error:
+          'This is a one-attempt test, and you already submitted it from this device.',
+      }
+    }
+  }
+
   const questions = Array.isArray(row.questions) ? row.questions : []
   let autoEarned = 0
   let autoPossible = 0
@@ -371,10 +402,32 @@ export async function submitResponse(
     auto_possible: autoPossible,
     manual_scores: {},
     needs_grading: needsGrading,
+    device_id: deviceId || null,
   })
   if (insErr) return { ok: false, error: insErr.message }
 
   return { ok: true, autoEarned, autoPossible, needsGrading }
+}
+
+/* Lets the intro screen warn a repeat test-taker up front, before
+   they fill out an entire one-attempt test, instead of only after
+   they hit submit. Read-only mirror of the check submitResponse()
+   enforces server-side — this doesn't replace that check, it just
+   runs it ahead of time for a better message. */
+export async function hasDeviceSubmitted(
+  testId: string,
+  deviceId: string,
+): Promise<boolean> {
+  if (!deviceId) return false
+  const db = createServiceClient()
+  const { data, error } = await db
+    .from('responses')
+    .select('id')
+    .eq('test_id', testId)
+    .eq('device_id', deviceId)
+    .limit(1)
+  if (error) throw new Error(error.message)
+  return (data ?? []).length > 0
 }
 
 export async function gradeEssay(

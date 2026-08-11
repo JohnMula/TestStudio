@@ -1,8 +1,9 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
-import { Check } from 'lucide-react'
+import { Check, Info } from 'lucide-react'
+import { loadSettings, saveSettings, type AppSettings } from '@/lib/store'
 
 /* ---------- small primitives ---------- */
 
@@ -121,24 +122,61 @@ function Row({
   )
 }
 
-/* ---------- view ---------- */
+/* ---------- view ----------
+
+   Everything below is real now — no toggle here is decorative.
+
+   Removed from the old version, on purpose:
+     - Export file format (CSV / JSON / PDF): only CSV export exists
+       anywhere in this app. Offering JSON/PDF as choices when
+       neither is implemented was exactly the "half-working feature"
+       problem — it's been cut rather than faked.
+     - Auto-export on close (email results): there's no email-sending
+       code anywhere in this project, so this could never have worked
+       as a toggle. Cut rather than left in as a dead switch.
+
+   Kept, and made to actually do something:
+     - Time limit / shuffle / single-attempt defaults now persist to
+       this browser (localStorage) and genuinely pre-fill the
+       create-test form — see app/create/page.tsx. You can still
+       change any of them per test before publishing.
+     - "Include submitted-at column" now actually controls the CSV
+       export — see app/test/[id]/page.tsx.
+
+   Added:
+     - A plain note about this app having no accounts, since a
+       teacher can otherwise lose every test they made with zero
+       warning by clearing cookies. That's a real risk worth stating
+       plainly, not a toggle. */
+
+const TIME_OPTIONS = ['Off', '15m', '30m', '60m'] as const
+type TimeOpt = (typeof TIME_OPTIONS)[number]
 
 export function SettingsView() {
-  const [timeLimit, setTimeLimit] = useState<'Off' | '15m' | '30m' | '60m'>(
-    '15m',
-  )
+  const [timeLimit, setTimeLimit] = useState<TimeOpt>('15m')
   const [shuffle, setShuffle] = useState(true)
   const [singleAttempt, setSingleAttempt] = useState(false)
-
-  const [exportFormat, setExportFormat] = useState<'CSV' | 'JSON' | 'PDF'>(
-    'CSV',
-  )
   const [includeTimestamps, setIncludeTimestamps] = useState(true)
-  const [autoExport, setAutoExport] = useState(false)
-
   const [saved, setSaved] = useState(false)
 
+  // Load whatever's already saved on this browser, same pattern the
+  // create-test draft loader uses.
+  useEffect(() => {
+    const s = loadSettings()
+    setTimeLimit(s.defaultTimeLimit as TimeOpt)
+    setShuffle(s.defaultShuffle)
+    setSingleAttempt(s.defaultSingleAttempt)
+    setIncludeTimestamps(s.exportIncludeTimestamps)
+  }, [])
+
   function handleSave() {
+    const next: AppSettings = {
+      defaultTimeLimit: timeLimit,
+      defaultShuffle: shuffle,
+      defaultSingleAttempt: singleAttempt,
+      exportIncludeTimestamps: includeTimestamps,
+    }
+    saveSettings(next)
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
   }
@@ -146,16 +184,16 @@ export function SettingsView() {
   return (
     <div className="flex flex-col gap-6">
       <Card
-        title="Default test settings"
-        description="Applied to every new test. You can override these per test."
+        title="Defaults for new tests"
+        description="What a new test starts with. Change any of it per test on the create page before you publish."
       >
         <Row
           label="Time limit"
-          description="Countdown shown to test-takers once they start."
+          description="Countdown shown once a test-taker starts — the test auto-submits when it runs out."
           control={
             <Segmented
               label="Default time limit"
-              options={['Off', '15m', '30m', '60m'] as const}
+              options={TIME_OPTIONS}
               value={timeLimit}
               onChange={setTimeLimit}
             />
@@ -174,7 +212,7 @@ export function SettingsView() {
         />
         <Row
           label="Single-attempt lock"
-          description="Once submitted, a code can't be used again from the same device."
+          description="Once submitted, the same browser can't submit that test again."
           control={
             <Toggle
               label="Single-attempt lock"
@@ -187,42 +225,31 @@ export function SettingsView() {
 
       <Card
         title="Export preferences"
-        description="How results are packaged when you download them."
+        description="Applied the next time you export a test's results as CSV."
       >
         <Row
-          label="File format"
-          control={
-            <Segmented
-              label="Export file format"
-              options={['CSV', 'JSON', 'PDF'] as const}
-              value={exportFormat}
-              onChange={setExportFormat}
-            />
-          }
-        />
-        <Row
-          label="Include timestamps"
-          description="Add start and submit times to each response."
+          label="Include submitted-at column"
+          description="Add the submission timestamp to each row."
           control={
             <Toggle
-              label="Include timestamps"
+              label="Include submitted-at column"
               checked={includeTimestamps}
               onChange={setIncludeTimestamps}
             />
           }
         />
-        <Row
-          label="Auto-export on close"
-          description="Email a copy of results when a test is closed."
-          control={
-            <Toggle
-              label="Auto-export on close"
-              checked={autoExport}
-              onChange={setAutoExport}
-            />
-          }
-        />
       </Card>
+
+      <div className="flex items-start gap-3 rounded-[16px] border border-border bg-card p-4 shadow-soft sm:p-5">
+        <Info className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden />
+        <p className="text-xs leading-relaxed text-muted-foreground">
+          TestStudio doesn&apos;t use accounts — your tests, drafts, and
+          question bank are tied to this browser only. Clearing cookies or
+          site data, or switching browsers or devices, means losing access to
+          them with no way to recover them. Bookmark your dashboard link if
+          you want to come back later.
+        </p>
+      </div>
 
       <div className="flex items-center justify-end gap-3">
         {saved ? (

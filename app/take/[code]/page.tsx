@@ -2,14 +2,18 @@
 
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import useSWR from 'swr'
 import { Trophy, ArrowRight, Clock, Lock, Loader2 } from 'lucide-react'
 import { SiteHeader } from '@/components/site-header'
 import { QuestionTaker } from '@/components/question-taker'
 import { TurnstileWidget } from '@/components/turnstile-widget'
-import { getPublicTestByCode, submitResponse } from '@/lib/actions'
-import { possiblePointsPublic } from '@/lib/store'
+import {
+  getPublicTestByCode,
+  submitResponse,
+  hasDeviceSubmitted,
+} from '@/lib/actions'
+import { possiblePointsPublic, getDeviceId } from '@/lib/store'
 
 type Stage = 'intro' | 'quiz' | 'result'
 
@@ -17,6 +21,25 @@ type Result = {
   autoEarned: number
   autoPossible: number
   needsGrading: boolean
+}
+
+/* Real countdown + auto-submit for the time limit set on the test.
+   This is enforced client-side only — there's no account/session to
+   check elapsed time against server-side, so a determined test-taker
+   with devtools open could still bypass it. That's a real limitation,
+   but it's a large step up from the old version, which only printed
+   "Time limit 15m" as text and did nothing when it ran out. */
+const TIME_LIMIT_SECONDS: Record<string, number | null> = {
+  Off: null,
+  '15m': 15 * 60,
+  '30m': 30 * 60,
+  '60m': 60 * 60,
+}
+
+function formatClock(totalSeconds: number): string {
+  const m = Math.floor(totalSeconds / 60)
+  const s = totalSeconds % 60
+  return `${m}:${String(s).padStart(2, '0')}`
 }
 
 export default function TakeTestPage() {
@@ -53,6 +76,49 @@ export default function TakeTestPage() {
     return idx
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [test?.id])
+
+  // Per-browser id, used only to check/enforce this test's
+  // single-attempt lock (see lib/store.ts — getDeviceId()).
+  const deviceId = useMemo(() => getDeviceId(), [])
+
+  // Ahead-of-time single-attempt check, so a repeat test-taker sees a
+  // clear message on the intro screen instead of only after finishing
+  // the whole test. Only runs when the test actually has the lock on.
+  const { data: alreadyAttempted } = useSWR(
+    test && test.singleAttempt
+      ? ['device-attempted', test.id, deviceId]
+      : null,
+    () => hasDeviceSubmitted(test!.id, deviceId),
+  )
+
+  // Countdown + auto-submit for the test's time limit. Starts fresh
+  // the moment `stage` becomes 'quiz' (i.e. "Start test" is clicked).
+  const [secondsLeft, setSecondsLeft] = useState<number | null>(null)
+  const deadlineRef = useRef<number | null>(null)
+
+  useEffect(() => {
+    if (stage !== 'quiz' || !test) return
+    const limitSeconds = TIME_LIMIT_SECONDS[test.timeLimit] ?? null
+    if (limitSeconds == null) {
+      setSecondsLeft(null)
+      return
+    }
+    deadlineRef.current = Date.now() + limitSeconds * 1000
+    setSecondsLeft(limitSeconds)
+    const id = setInterval(() => {
+      const deadline = deadlineRef.current ?? Date.now()
+      setSecondsLeft(Math.max(0, Math.round((deadline - Date.now()) / 1000)))
+    }, 250)
+    return () => clearInterval(id)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stage])
+
+  useEffect(() => {
+    if (stage === 'quiz' && secondsLeft === 0 && !submitting) {
+      submit()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [secondsLeft])
 
   if (isLoading) {
     return (
@@ -112,7 +178,7 @@ export default function TakeTestPage() {
     if (!test || submitting) return
     setSubmitting(true)
     setError(null)
-    const res = await submitResponse(test.id, answers, name, captchaToken)
+    const res = await submitResponse(test.id, answers, name, captchaToken, deviceId)
     setSubmitting(false)
     if (!res.ok) {
       setError(res.error)
@@ -142,29 +208,44 @@ export default function TakeTestPage() {
             <p className="text-sm text-muted-foreground">
               {orderedQuestions.length}{' '}
               {orderedQuestions.length === 1 ? 'question' : 'questions'} · {total}{' '}
-              {total === 1 ? 'point' : 'points'} · Time limit {test.timeLimit} ·
-              No account needed.
+              {total === 1 ? 'point' : 'points'} ·{' '}
+              {test.timeLimit === 'Off'
+                ? 'No time limit'
+                : `Time limit ${test.timeLimit} (auto-submits when it runs out)`}{' '}
+              · No account needed.
             </p>
           </div>
-          <label className="flex flex-col gap-2">
-            <span className="text-sm font-medium text-foreground">
-              Your name <span className="text-muted-foreground">(optional)</span>
-            </span>
-            <input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Leave blank to stay anonymous"
-              className="rounded-[10px] border border-border bg-background px-3 py-2 text-sm text-foreground outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/20"
-            />
-          </label>
-          <button
-            type="button"
-            onClick={() => setStage('quiz')}
-            className="flex items-center justify-center gap-2 rounded-[12px] bg-primary px-6 py-3 text-sm font-medium text-primary-foreground shadow-soft transition-opacity hover:opacity-90"
-          >
-            Start test
-            <ArrowRight className="size-4" aria-hidden />
-          </button>
+
+          {test.singleAttempt && alreadyAttempted ? (
+            <div className="flex items-center gap-3 rounded-[10px] border border-border bg-secondary/50 px-4 py-3 text-sm text-muted-foreground">
+              <Lock className="size-4 shrink-0" aria-hidden />
+              This is a one-attempt test, and you&apos;ve already submitted it
+              from this device.
+            </div>
+          ) : (
+            <>
+              <label className="flex flex-col gap-2">
+                <span className="text-sm font-medium text-foreground">
+                  Your name{' '}
+                  <span className="text-muted-foreground">(optional)</span>
+                </span>
+                <input
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="Leave blank to stay anonymous"
+                  className="rounded-[10px] border border-border bg-background px-3 py-2 text-sm text-foreground outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/20"
+                />
+              </label>
+              <button
+                type="button"
+                onClick={() => setStage('quiz')}
+                className="flex items-center justify-center gap-2 rounded-[12px] bg-primary px-6 py-3 text-sm font-medium text-primary-foreground shadow-soft transition-opacity hover:opacity-90"
+              >
+                Start test
+                <ArrowRight className="size-4" aria-hidden />
+              </button>
+            </>
+          )}
         </section>
       ) : null}
 
@@ -175,6 +256,15 @@ export default function TakeTestPage() {
               <span>
                 {answeredCount} / {orderedQuestions.length} answered
               </span>
+              {secondsLeft != null ? (
+                <span
+                  className={
+                    secondsLeft <= 60 ? 'text-destructive' : undefined
+                  }
+                >
+                  {formatClock(secondsLeft)} left
+                </span>
+              ) : null}
               <span>{total} pts</span>
             </div>
             <div className="h-1.5 overflow-hidden rounded-full bg-secondary">
