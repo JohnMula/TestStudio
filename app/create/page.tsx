@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Suspense, useCallback, useEffect, useRef, useState } from 'react'
-import { ArrowLeft, Eye, Library, Check, X, Plus } from 'lucide-react'
+import { ArrowLeft, Eye, Library, Check, X, Plus, Calendar } from 'lucide-react'
 import { SiteHeader } from '@/components/site-header'
 import { TypePicker } from '@/components/type-picker'
 import { QuestionEditor } from '@/components/question-editor'
@@ -460,8 +460,16 @@ function CreateEditor() {
           ))}
         </div>
 
-        <div className="mt-4">
-          <TypePicker recentType={recentType} onPick={addQuestion} />
+        <div className="mt-4 flex flex-wrap items-end gap-3">
+          <TypePicker value={questionType} onChange={setQuestionType} />
+          <button
+            type="button"
+            onClick={addQuestion}
+            className="flex items-center gap-2 rounded-[10px] bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-soft transition-opacity hover:opacity-90"
+          >
+            <Plus className="size-4" aria-hidden />
+            Add question
+          </button>
         </div>
 
         {questions.length === 0 ? (
