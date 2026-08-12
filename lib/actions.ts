@@ -14,6 +14,7 @@ import {
   type Response,
   type Test,
   type TestResult,
+  type TestSnapshot,
 } from '@/lib/types'
 import {
   rateLimitCreateTest,
@@ -54,6 +55,7 @@ type ResponseRow = {
   manual_scores: Record<string, number>
   needs_grading: boolean
   submitted_at: string
+  test_snapshot: TestSnapshot | null
 }
 
 function ms(value: string | null): number | null {
@@ -70,6 +72,7 @@ function mapResponse(row: ResponseRow): Response {
     autoPossible: row.auto_possible,
     manualScores: row.manual_scores ?? {},
     needsGrading: row.needs_grading,
+    testSnapshot: row.test_snapshot ?? undefined,
   }
 }
 
@@ -88,6 +91,19 @@ function mapTest(row: TestRow, responses: ResponseRow[]): Test {
       .sort((a, b) => b.submittedAt - a.submittedAt),
     opensAt: ms(row.opens_at),
     closesAt: ms(row.closes_at),
+  }
+}
+
+function toTestSnapshot(row: TestRow): TestSnapshot {
+  return {
+    title: row.title,
+    code: row.code,
+    timeLimit: row.time_limit,
+    shuffle: row.shuffle,
+    singleAttempt: row.single_attempt,
+    opensAt: ms(row.opens_at),
+    closesAt: ms(row.closes_at),
+    questions: Array.isArray(row.questions) ? row.questions : [],
   }
 }
 
@@ -389,6 +405,8 @@ export type CreateTestResult =
   | { ok: true; id: string }
   | { ok: false; error: string }
 
+export type UpdateTestResult = CreateTestResult
+
 export async function createTest(
   input: CreateTestInput,
 ): Promise<CreateTestResult> {
@@ -429,6 +447,76 @@ export async function createTest(
     .single()
 
   if (error) return { ok: false, error: error.message }
+  return { ok: true, id: (data as { id: string }).id }
+}
+
+/* Updates go through the RLS-scoped client so a browser can only update a
+   test it owns. The existing row is read first both to verify ownership and
+   to preserve its current share code when no replacement was supplied. */
+export async function updateTest(
+  id: string,
+  input: CreateTestInput,
+): Promise<UpdateTestResult> {
+  const validationError = validateCreateTestInput(input)
+  if (validationError) return { ok: false, error: validationError }
+
+  const db = await createClient()
+  const { data: existing, error: readError } = await db
+    .from('tests')
+    .select('*')
+    .eq('id', id)
+    .maybeSingle()
+
+  if (readError || !existing) {
+    return {
+      ok: false,
+      error: 'This test could not be found or you no longer have permission to edit it.',
+    }
+  }
+
+  const current = existing as TestRow
+  const code = input.code?.trim().toUpperCase() || current.code
+  if (await codeExists(code, id)) {
+    return { ok: false, error: 'That code is already taken.' }
+  }
+
+  // Responses created before this feature do not yet have a snapshot. Capture
+  // the current version before replacing it, so their original score and
+  // question context cannot drift after the edit.
+  const { error: snapshotError } = await createServiceClient()
+    .from('responses')
+    .update({ test_snapshot: toTestSnapshot(current) })
+    .eq('test_id', id)
+    .is('test_snapshot', null)
+  if (snapshotError) {
+    return {
+      ok: false,
+      error: 'Unable to preserve this test’s response history. Please try again.',
+    }
+  }
+
+  const { data, error } = await db
+    .from('tests')
+    .update({
+      title: input.title,
+      code,
+      time_limit: input.timeLimit,
+      shuffle: input.shuffle,
+      single_attempt: input.singleAttempt,
+      opens_at: input.opensAt ? new Date(input.opensAt).toISOString() : null,
+      closes_at: input.closesAt ? new Date(input.closesAt).toISOString() : null,
+      questions: input.questions,
+    })
+    .eq('id', id)
+    .select('id')
+    .maybeSingle()
+
+  if (error || !data) {
+    return {
+      ok: false,
+      error: 'Unable to save your changes. Please try again.',
+    }
+  }
   return { ok: true, id: (data as { id: string }).id }
 }
 
@@ -580,6 +668,7 @@ export async function submitResponse(
     manual_scores: {},
     needs_grading: needsGrading,
     device_id: deviceId || null,
+    test_snapshot: toTestSnapshot(row),
   })
   if (insErr) return { ok: false, error: insErr.message }
 
@@ -641,7 +730,7 @@ export async function gradeEssay(
       db.from('tests').select('questions').eq('id', testId).maybeSingle(),
       db
         .from('responses')
-        .select('manual_scores')
+        .select('manual_scores, test_snapshot')
         .eq('id', responseId)
         .maybeSingle(),
     ])
@@ -649,9 +738,13 @@ export async function gradeEssay(
   if (rErr) throw new Error(rErr.message)
   if (!test || !response) return
 
-  const questions = Array.isArray((test as { questions: Question[] }).questions)
-    ? (test as { questions: Question[] }).questions
-    : []
+  const snapshot = (response as { test_snapshot?: TestSnapshot | null })
+    .test_snapshot
+  const questions = Array.isArray(snapshot?.questions)
+    ? snapshot.questions
+    : Array.isArray((test as { questions: Question[] }).questions)
+      ? (test as { questions: Question[] }).questions
+      : []
   const manualScores: Record<string, number> = {
     ...((response as { manual_scores: Record<string, number> }).manual_scores ??
       {}),

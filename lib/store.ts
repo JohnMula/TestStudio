@@ -10,6 +10,8 @@ import {
   getTest,
   listTests,
   type CreateTestResult,
+  type UpdateTestResult,
+  updateTest as updateTestAction,
 } from '@/lib/actions'
 import { makeId, type CreateTestInput, type Question, type Test } from '@/lib/types'
 
@@ -17,6 +19,7 @@ import { makeId, type CreateTestInput, type Question, type Test } from '@/lib/ty
    components can keep importing them from '@/lib/store'. */
 export * from '@/lib/types'
 export type { CreateTestResult } from '@/lib/actions'
+export type { UpdateTestResult } from '@/lib/actions'
 
 /* ============================================================
    Tests & responses — backed by Supabase via server actions.
@@ -33,11 +36,24 @@ export function useTest(id: string): Test | undefined {
   return data ?? undefined
 }
 
+export async function getTestForEditing(id: string): Promise<Test | null> {
+  return getTest(id)
+}
+
 export async function createTest(
   input: CreateTestInput,
 ): Promise<CreateTestResult> {
   const res = await createTestAction(input)
   if (res.ok) await mutate('tests')
+  return res
+}
+
+export async function updateTest(
+  id: string,
+  input: CreateTestInput,
+): Promise<UpdateTestResult> {
+  const res = await updateTestAction(id, input)
+  if (res.ok) await Promise.all([mutate('tests'), mutate(['test', id])])
   return res
 }
 

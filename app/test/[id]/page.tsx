@@ -24,6 +24,7 @@ import {
   gradeEssay,
   possiblePoints,
   responseEarned,
+  responsePossible,
   loadSettings,
   type Response,
   type Test,
@@ -73,6 +74,7 @@ function exportCsv(test: Test) {
     header,
     ...test.responses.map((r) => {
       const earned = responseEarned(test, r)
+      const possible = responsePossible(test, r)
       const row = [csvSafe(r.takerName)]
       if (includeTimestamps) row.push(new Date(r.submittedAt).toISOString())
       row.push(
@@ -106,6 +108,7 @@ function TestDetail() {
   }, [])
 
   const justCreated = search.get('created') === '1'
+  const justUpdated = search.get('updated') === '1'
 
   if (!test) {
     return (
@@ -129,11 +132,14 @@ function TestDetail() {
   const possible = possiblePoints(test)
   const pendingCount = test.responses.filter((r) => r.needsGrading).length
   const avgScore =
-    test.responses.length > 0 && possible > 0
+    test.responses.length > 0
       ? Math.round(
-          (test.responses.reduce((s, r) => s + responseEarned(test, r), 0) /
-            (test.responses.length * possible)) *
-            100,
+          test.responses.reduce((sum, response) => {
+            const responseTotal = responsePossible(test, response)
+            return sum + (responseTotal > 0
+              ? (responseEarned(test, response) / responseTotal) * 100
+              : 0)
+          }, 0) / test.responses.length,
         )
       : null
 
@@ -155,14 +161,14 @@ function TestDetail() {
     if (copy) router.push(`/test/${copy.id}`)
   }
 
-  const essays = test.questions.filter((q) => q.type === 'essay')
-
   return (
     <main className="mx-auto max-w-4xl px-4 py-8 sm:px-6 sm:py-10">
-      {justCreated ? (
+      {justCreated || justUpdated ? (
         <div className="mb-6 flex items-center gap-2 rounded-[12px] border border-primary/30 bg-accent px-4 py-3 text-sm text-accent-foreground">
           <Check className="size-4 text-primary" aria-hidden />
-          Test published. Share the code below — no account needed to take it.
+          {justUpdated
+            ? 'Test changes saved. Its existing code and responses were preserved.'
+            : 'Test published. Share the code below — no account needed to take it.'}
         </div>
       ) : null}
 
@@ -265,12 +271,13 @@ function TestDetail() {
                     key={r.id}
                     test={test}
                     response={r}
-                    possible={possible}
                     expanded={expanded === r.id}
                     onToggle={() =>
                       setExpanded((cur) => (cur === r.id ? null : r.id))
                     }
-                    hasEssays={essays.length > 0}
+                    hasEssays={(r.testSnapshot?.questions ?? test.questions).some(
+                      (question) => question.type === 'essay',
+                    )}
                   />
                 ))}
               </ul>
@@ -359,20 +366,21 @@ function TestDetail() {
 function ResponseRow({
   test,
   response,
-  possible,
   expanded,
   onToggle,
   hasEssays,
 }: {
   test: Test
   response: Response
-  possible: number
   expanded: boolean
   onToggle: () => void
   hasEssays: boolean
 }) {
   const earned = responseEarned(test, response)
-  const essays = test.questions.filter((q) => q.type === 'essay')
+  const possible = responsePossible(test, response)
+  const essays = (response.testSnapshot?.questions ?? test.questions).filter(
+    (q) => q.type === 'essay',
+  )
 
   return (
     <li className="border-t border-border">

@@ -1,8 +1,17 @@
 'use client'
 
 import Link from 'next/link'
-import { useState } from 'react'
-import { Plus, Users, HelpCircle, ArrowRight, KeyRound, Settings } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import {
+  Plus,
+  Users,
+  HelpCircle,
+  ArrowRight,
+  KeyRound,
+  Settings,
+  Ellipsis,
+  Pencil,
+} from 'lucide-react'
 import { SiteHeader } from '@/components/site-header'
 import { useTests } from '@/lib/store'
 import { useRouter } from 'next/navigation'
@@ -96,20 +105,30 @@ export default function DashboardPage() {
         ) : (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {tests.map((test) => (
-              <Link
+              <article
                 key={test.id}
-                href={`/test/${test.id}`}
                 className="group flex flex-col gap-5 rounded-[16px] border border-border bg-card p-5 shadow-soft transition-shadow hover:shadow-soft-lg"
               >
                 <div className="flex items-start justify-between gap-3">
-                  <h2 className="font-heading text-base font-semibold leading-snug text-foreground text-balance">
-                    {test.title}
-                  </h2>
-                  <span className="shrink-0 rounded-md bg-accent px-2 py-1 font-mono text-xs text-accent-foreground">
-                    {test.code}
-                  </span>
+                  <Link
+                    href={`/test/${test.id}`}
+                    className="min-w-0 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                  >
+                    <h2 className="font-heading text-base font-semibold leading-snug text-foreground text-balance">
+                      {test.title}
+                    </h2>
+                  </Link>
+                  <div className="flex shrink-0 items-center gap-1">
+                    <span className="rounded-md bg-accent px-2 py-1 font-mono text-xs text-accent-foreground">
+                      {test.code}
+                    </span>
+                    <TestActionsMenu testId={test.id} />
+                  </div>
                 </div>
-                <div className="mt-auto flex items-center justify-between text-sm text-muted-foreground">
+                <Link
+                  href={`/test/${test.id}`}
+                  className="mt-auto flex items-center justify-between rounded-sm text-sm text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                >
                   <span className="flex items-center gap-4">
                     <span className="flex items-center gap-1.5">
                       <HelpCircle className="size-4" aria-hidden />
@@ -124,12 +143,64 @@ export default function DashboardPage() {
                     className="size-4 transition-transform group-hover:translate-x-1"
                     aria-hidden
                   />
-                </div>
-              </Link>
+                </Link>
+              </article>
             ))}
           </div>
         )}
       </main>
+    </div>
+  )
+}
+
+function TestActionsMenu({ testId }: { testId: string }) {
+  const [open, setOpen] = useState(false)
+  const menuRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    function handlePointerDown(event: PointerEvent) {
+      if (!menuRef.current?.contains(event.target as Node)) setOpen(false)
+    }
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('pointerdown', handlePointerDown)
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [])
+
+  return (
+    <div ref={menuRef} className="relative">
+      <button
+        type="button"
+        aria-label="Test actions"
+        aria-expanded={open}
+        aria-haspopup="menu"
+        onClick={() => setOpen((current) => !current)}
+        className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+      >
+        <Ellipsis className="size-4" aria-hidden />
+      </button>
+      {open ? (
+        <div
+          role="menu"
+          aria-label="Test actions"
+          className="absolute right-0 top-full z-20 mt-1 w-36 rounded-[10px] border border-border bg-card p-1 shadow-soft-lg"
+        >
+          <Link
+            href={`/create?edit=${encodeURIComponent(testId)}`}
+            role="menuitem"
+            onClick={() => setOpen(false)}
+            className="flex items-center gap-2 rounded-[7px] px-2.5 py-2 text-sm text-foreground transition-colors hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+          >
+            <Pencil className="size-3.5 text-primary" aria-hidden />
+            Edit
+          </Link>
+        </div>
+      ) : null}
     </div>
   )
 }

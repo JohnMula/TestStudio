@@ -388,6 +388,17 @@ export function gradeQuestion(q: Question, answer: unknown): Grade {
    Response + Test domain types (as used across the UI)
    ============================================================ */
 
+export type TestSnapshot = {
+  title: string
+  code: string
+  timeLimit: string
+  shuffle: boolean
+  singleAttempt: boolean
+  opensAt: number | null
+  closesAt: number | null
+  questions: Question[]
+}
+
 export type Response = {
   id: string
   takerName: string
@@ -397,6 +408,7 @@ export type Response = {
   autoPossible: number
   manualScores: Record<string, number> // questionId -> awarded points
   needsGrading: boolean
+  testSnapshot?: TestSnapshot
 }
 
 export type Test = {
@@ -426,6 +438,10 @@ export function possiblePointsPublic(test: {
 export function responseEarned(test: Test, r: Response): number {
   const manual = Object.values(r.manualScores).reduce((s, n) => s + n, 0)
   return r.autoEarned + manual
+}
+
+export function responsePossible(test: Test, r: Response): number {
+  return possiblePoints({ questions: r.testSnapshot?.questions ?? test.questions })
 }
 
 /* input accepted by the create-test server action */

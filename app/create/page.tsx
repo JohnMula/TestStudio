@@ -1,8 +1,8 @@
 'use client'
 
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
+import { Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { ArrowLeft, Eye, Library, Check, X, Calendar } from 'lucide-react'
 import { SiteHeader } from '@/components/site-header'
 import { TypePicker } from '@/components/type-picker'
@@ -11,6 +11,7 @@ import { BankDialog } from '@/components/bank-dialog'
 import { PreviewDialog } from '@/components/preview-dialog'
 import {
   createTest,
+  updateTest,
   blankQuestion,
   saveDraft,
   loadDraft,
@@ -18,6 +19,7 @@ import {
   saveToBank,
   possiblePoints,
   loadSettings,
+  getTestForEditing,
   type Question,
   type QType,
   type Test,
@@ -36,8 +38,11 @@ function toLocalInput(ms: number | null): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
-export default function CreatePage() {
+function CreateEditor() {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const editId = searchParams.get('edit')
+  const isEditing = Boolean(editId)
 
   const [title, setTitle] = useState('')
   const [timeLimit, setTimeLimit] = useState<TimeOpt>('15m')
@@ -55,12 +60,54 @@ export default function CreatePage() {
   const [bankTarget, setBankTarget] = useState<Question | null>(null)
 
   const [loaded, setLoaded] = useState(false)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [savedAt, setSavedAt] = useState<number | null>(null)
   const [publishing, setPublishing] = useState(false)
   const [publishError, setPublishError] = useState<string | null>(null)
 
   /* ---------- autosave: load once, then persist on change ---------- */
   useEffect(() => {
+    let active = true
+
+    async function initialize() {
+      setLoaded(false)
+      setLoadError(null)
+
+      if (editId) {
+        try {
+          const test = await getTestForEditing(editId)
+          if (!active) return
+          if (!test) {
+            setLoadError(
+              'This test could not be found or you no longer have permission to edit it.',
+            )
+            return
+          }
+
+          setTitle(test.title)
+          setCustomCode(test.code)
+          setTimeLimit(
+            TIME_OPTIONS.includes(test.timeLimit as TimeOpt)
+              ? (test.timeLimit as TimeOpt)
+              : '15m',
+          )
+          setShuffle(test.shuffle)
+          setSingleAttempt(test.singleAttempt)
+          setQuestions(test.questions)
+          setOpensAt(toLocalInput(test.opensAt ?? null))
+          setClosesAt(toLocalInput(test.closesAt ?? null))
+          const lastQuestion = test.questions[test.questions.length - 1]
+          if (lastQuestion) setRecentType(lastQuestion.type)
+        } catch {
+          if (active) {
+            setLoadError('Unable to load this test. Please try again.')
+          }
+        } finally {
+          if (active) setLoaded(true)
+        }
+        return
+      }
+
     const d = loadDraft()
     if (d) {
       setTitle(d.title)
@@ -80,11 +127,17 @@ export default function CreatePage() {
       setShuffle(s.defaultShuffle)
       setSingleAttempt(s.defaultSingleAttempt)
     }
-    setLoaded(true)
-  }, [])
+      if (active) setLoaded(true)
+    }
+
+    void initialize()
+    return () => {
+      active = false
+    }
+  }, [editId])
 
   useEffect(() => {
-    if (!loaded) return
+    if (!loaded || isEditing) return
     const t = setTimeout(() => {
       saveDraft({
         title,
@@ -109,6 +162,7 @@ export default function CreatePage() {
     questions,
     opensAt,
     closesAt,
+    isEditing,
   ])
 
   /* ---------- question mutations ---------- */
@@ -172,7 +226,7 @@ export default function CreatePage() {
     if (!canPublish) return
     setPublishing(true)
     setPublishError(null)
-    const res = await createTest({
+    const input = {
       title: title.trim(),
       code: customCode.trim() ? customCode.trim() : undefined,
       timeLimit,
@@ -181,14 +235,28 @@ export default function CreatePage() {
       questions,
       opensAt: opensAt ? new Date(opensAt).getTime() : null,
       closesAt: closesAt ? new Date(closesAt).getTime() : null,
-    })
+    }
+    let res: Awaited<ReturnType<typeof createTest>>
+    try {
+      res = isEditing && editId
+        ? await updateTest(editId, input)
+        : await createTest(input)
+    } catch {
+      setPublishError(
+        isEditing
+          ? 'Unable to save your changes. Please try again.'
+          : 'Unable to publish this test. Please try again.',
+      )
+      setPublishing(false)
+      return
+    }
     if (!res.ok) {
       setPublishError(res.error)
       setPublishing(false)
       return
     }
-    clearDraft()
-    router.push(`/test/${res.id}?created=1`)
+    if (!isEditing) clearDraft()
+    router.push(`/test/${res.id}?${isEditing ? 'updated' : 'created'}=1`)
   }
 
   return (
@@ -197,7 +265,7 @@ export default function CreatePage() {
         maxWidth="max-w-3xl"
         right={
           <div className="flex items-center gap-4">
-            {savedAt ? (
+            {!isEditing && savedAt ? (
               <span className="hidden items-center gap-1.5 font-mono text-xs text-muted-foreground sm:flex">
                 <Check className="size-3.5 text-primary" aria-hidden />
                 Autosaved
@@ -215,9 +283,28 @@ export default function CreatePage() {
       />
 
       <main className="mx-auto max-w-3xl px-4 py-8 sm:px-6 sm:py-10">
+        {!loaded ? (
+          <div className="flex flex-col items-center gap-3 rounded-[16px] border border-border bg-card px-6 py-20 text-center shadow-soft">
+            <span className="size-5 animate-spin rounded-full border-2 border-secondary border-t-primary" />
+            <p className="text-sm text-muted-foreground">
+              {isEditing ? 'Loading test…' : 'Loading editor…'}
+            </p>
+          </div>
+        ) : loadError ? (
+          <div className="flex flex-col items-center gap-4 rounded-[16px] border border-border bg-card px-6 py-20 text-center shadow-soft">
+            <p className="text-sm text-destructive">{loadError}</p>
+            <Link
+              href="/dashboard"
+              className="rounded-[12px] bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground shadow-soft transition-opacity hover:opacity-90"
+            >
+              Back to dashboard
+            </Link>
+          </div>
+        ) : (
+          <>
         <div className="mb-8 flex flex-col gap-1">
           <h1 className="font-heading text-xl font-semibold tracking-tight text-foreground sm:text-2xl">
-            Create a test
+            {isEditing ? 'Edit test' : 'Create a test'}
           </h1>
           <p className="text-sm text-muted-foreground">
             Mix any question types you like. Publish, then share the code — no
@@ -392,9 +479,17 @@ export default function CreatePage() {
             disabled={!canPublish}
             className="w-full shrink-0 rounded-[12px] bg-primary px-6 py-3 text-sm font-medium text-primary-foreground shadow-soft transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40 sm:w-auto sm:py-2.5"
           >
-            {publishing ? 'Publishing…' : 'Publish test'}
+            {publishing
+              ? isEditing
+                ? 'Saving…'
+                : 'Publishing…'
+              : isEditing
+                ? 'Save changes'
+                : 'Publish test'}
           </button>
         </div>
+          </>
+        )}
       </main>
 
       {/* dialogs */}
@@ -420,6 +515,27 @@ export default function CreatePage() {
           setBankTarget(null)
         }}
       />
+    </div>
+  )
+}
+
+export default function CreatePage() {
+  return (
+    <Suspense fallback={<EditorLoadingFallback />}>
+      <CreateEditor />
+    </Suspense>
+  )
+}
+
+function EditorLoadingFallback() {
+  return (
+    <div className="min-h-screen bg-background">
+      <main className="mx-auto max-w-3xl px-4 py-8 sm:px-6 sm:py-10">
+        <div className="flex flex-col items-center gap-3 rounded-[16px] border border-border bg-card px-6 py-20 text-center shadow-soft">
+          <span className="size-5 animate-spin rounded-full border-2 border-secondary border-t-primary" />
+          <p className="text-sm text-muted-foreground">Loading editor…</p>
+        </div>
+      </main>
     </div>
   )
 }
