@@ -215,6 +215,66 @@ export function saveSettings(settings: AppSettings) {
 }
 
 /* ============================================================
+   Quiz-in-progress autosave — a test-taker's answers, saved to
+   this browser as they answer, so an accidental refresh, closed
+   tab, or crash mid-test doesn't wipe their work. Same idiom as
+   the builder draft above, just keyed per test instead of global.
+   Cleared once the response is actually submitted (or never
+   written at all if the test-taker never starts).
+
+   Note this doesn't fix the timer: the countdown itself is still
+   client-side only (see app/take/[code]/page.tsx), so resuming
+   after a refresh restarts the full countdown rather than picking
+   up where it left off. That's a pre-existing, documented
+   limitation — this only prevents losing answers, not time.
+   ============================================================ */
+
+function progressKey(testId: string): string {
+  return `teststudio.progress.${testId}`
+}
+
+export type QuizProgress = {
+  answers: Record<string, unknown>
+  name: string
+  savedAt: number
+}
+
+export function loadQuizProgress(testId: string): QuizProgress | null {
+  if (typeof window === 'undefined' || !testId) return null
+  try {
+    const raw = window.localStorage.getItem(progressKey(testId))
+    return raw ? (JSON.parse(raw) as QuizProgress) : null
+  } catch {
+    return null
+  }
+}
+
+export function saveQuizProgress(
+  testId: string,
+  progress: Omit<QuizProgress, 'savedAt'>,
+) {
+  if (typeof window === 'undefined' || !testId) return
+  try {
+    window.localStorage.setItem(
+      progressKey(testId),
+      JSON.stringify({ ...progress, savedAt: Date.now() }),
+    )
+  } catch {
+    // localStorage can throw (private browsing, full quota) — losing
+    // the autosave silently isn't worth surfacing an error over.
+  }
+}
+
+export function clearQuizProgress(testId: string) {
+  if (typeof window === 'undefined' || !testId) return
+  try {
+    window.localStorage.removeItem(progressKey(testId))
+  } catch {
+    // see saveQuizProgress
+  }
+}
+
+/* ============================================================
    Device id — a random per-browser identifier, used only to
    enforce a test's "single attempt" lock (lib/actions.ts —
    submitResponse, hasDeviceSubmitted). It is NOT an account: it

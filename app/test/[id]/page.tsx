@@ -24,6 +24,7 @@ import {
   gradeEssay,
   possiblePoints,
   responseEarned,
+  loadSettings,
   type Response,
   type Test,
 } from '@/lib/store'
@@ -59,18 +60,28 @@ function csvSafe(value: string): string {
 
 function exportCsv(test: Test) {
   const possible = possiblePoints(test)
+  // Settings page promises this toggle controls the export — it used
+  // to be saved but never actually read here, so the column showed up
+  // regardless of the setting. Now it's honored.
+  const includeTimestamps = loadSettings().exportIncludeTimestamps
+
+  const header = ['Name']
+  if (includeTimestamps) header.push('Submitted')
+  header.push('Earned', 'Possible', 'Percent', 'Needs grading')
+
   const rows = [
-    ['Name', 'Submitted', 'Earned', 'Possible', 'Percent', 'Needs grading'],
+    header,
     ...test.responses.map((r) => {
       const earned = responseEarned(test, r)
-      return [
-        csvSafe(r.takerName),
-        new Date(r.submittedAt).toISOString(),
+      const row = [csvSafe(r.takerName)]
+      if (includeTimestamps) row.push(new Date(r.submittedAt).toISOString())
+      row.push(
         String(earned),
         String(possible),
         possible ? `${Math.round((earned / possible) * 100)}%` : '0%',
         r.needsGrading ? 'yes' : 'no',
-      ]
+      )
+      return row
     }),
   ]
   const csv = rows
@@ -87,6 +98,8 @@ function TestDetail() {
   const [copied, setCopied] = useState(false)
   const [expanded, setExpanded] = useState<string | null>(null)
   const [origin, setOrigin] = useState('')
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const [deleting, setDeleting] = useState(false)
 
   useEffect(() => {
     setOrigin(window.location.origin)
@@ -132,6 +145,7 @@ function TestDetail() {
   }
 
   async function handleDelete() {
+    setDeleting(true)
     await deleteTest(test!.id)
     router.push('/dashboard')
   }
@@ -274,7 +288,7 @@ function TestDetail() {
             </button>
             <button
               type="button"
-              onClick={handleDelete}
+              onClick={() => setConfirmDelete(true)}
               className="flex items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-destructive"
             >
               <Trash2 className="size-4" aria-hidden />
@@ -293,6 +307,51 @@ function TestDetail() {
           />
         </div>
       </div>
+
+      {confirmDelete ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/40 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Confirm delete"
+          onClick={() => !deleting && setConfirmDelete(false)}
+        >
+          <div
+            className="flex w-full max-w-sm flex-col gap-4 rounded-[16px] border border-border bg-card p-6 shadow-soft-lg"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex flex-col gap-1.5">
+              <span className="font-heading text-base font-semibold text-foreground">
+                Delete &quot;{test.title}&quot;?
+              </span>
+              <p className="text-sm text-muted-foreground text-pretty">
+                {test.responses.length > 0
+                  ? `This permanently deletes the test and all ${test.responses.length} ${test.responses.length === 1 ? 'response' : 'responses'} to it. This can't be undone.`
+                  : "This permanently deletes the test. This can't be undone."}
+              </p>
+            </div>
+            <div className="flex items-center justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setConfirmDelete(false)}
+                disabled={deleting}
+                className="rounded-[10px] border border-border bg-card px-4 py-2 text-sm font-medium text-foreground shadow-soft transition-colors hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleDelete}
+                disabled={deleting}
+                className="flex items-center gap-2 rounded-[10px] bg-destructive px-4 py-2 text-sm font-medium text-primary-foreground shadow-soft transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <Trash2 className="size-4" aria-hidden />
+                {deleting ? 'Deleting…' : 'Delete permanently'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </main>
   )
 }

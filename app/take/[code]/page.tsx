@@ -13,7 +13,13 @@ import {
   submitResponse,
   hasDeviceSubmitted,
 } from '@/lib/actions'
-import { possiblePointsPublic, getDeviceId } from '@/lib/store'
+import {
+  possiblePointsPublic,
+  getDeviceId,
+  loadQuizProgress,
+  saveQuizProgress,
+  clearQuizProgress,
+} from '@/lib/store'
 
 type Stage = 'intro' | 'quiz' | 'result'
 
@@ -80,6 +86,28 @@ export default function TakeTestPage() {
   // Per-browser id, used only to check/enforce this test's
   // single-attempt lock (see lib/store.ts — getDeviceId()).
   const deviceId = useMemo(() => getDeviceId(), [])
+
+  // Restore any saved in-progress answers for this test, once it's
+  // loaded — covers an accidental refresh, closed tab, or crash
+  // partway through. Jumps straight back into the quiz rather than
+  // the intro screen, since "Start test" was already clicked before.
+  useEffect(() => {
+    if (!test) return
+    const saved = loadQuizProgress(test.id)
+    if (saved && Object.keys(saved.answers).length > 0) {
+      setAnswers(saved.answers)
+      if (saved.name) setName(saved.name)
+      setStage('quiz')
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [test?.id])
+
+  // Autosave progress as the test-taker answers. Cleared on submit
+  // (see submit() below) so a finished attempt doesn't linger.
+  useEffect(() => {
+    if (!test || stage !== 'quiz') return
+    saveQuizProgress(test.id, { answers, name })
+  }, [test, stage, answers, name])
 
   // Ahead-of-time single-attempt check, so a repeat test-taker sees a
   // clear message on the intro screen instead of only after finishing
@@ -185,6 +213,7 @@ export default function TakeTestPage() {
       setCaptchaToken('') // tokens are single-use — the widget issues a fresh one
       return
     }
+    clearQuizProgress(test.id)
     setResult({
       autoEarned: res.autoEarned,
       autoPossible: res.autoPossible,
