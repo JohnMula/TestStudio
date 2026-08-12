@@ -4,6 +4,7 @@ import { createServiceClient, createClient } from '@/lib/supabase/server'
 import {
   gradeQuestion,
   makeCode,
+  normalizeQuestions,
   seededShuffle,
   toPublicQuestion,
   validateCreateTestInput,
@@ -38,6 +39,7 @@ type TestRow = {
   code: string
   time_limit: string
   shuffle: boolean
+  shuffle_choices: boolean | null
   single_attempt: boolean
   opens_at: string | null
   closes_at: string | null
@@ -83,9 +85,10 @@ function mapTest(row: TestRow, responses: ResponseRow[]): Test {
     code: row.code,
     timeLimit: row.time_limit,
     shuffle: row.shuffle,
+    shuffleChoices: row.shuffle_choices ?? true,
     singleAttempt: row.single_attempt,
     createdAt: new Date(row.created_at).getTime(),
-    questions: Array.isArray(row.questions) ? row.questions : [],
+    questions: normalizeQuestions(row.questions),
     responses: responses
       .map(mapResponse)
       .sort((a, b) => b.submittedAt - a.submittedAt),
@@ -100,10 +103,11 @@ function toTestSnapshot(row: TestRow): TestSnapshot {
     code: row.code,
     timeLimit: row.time_limit,
     shuffle: row.shuffle,
+    shuffleChoices: row.shuffle_choices ?? true,
     singleAttempt: row.single_attempt,
     opensAt: ms(row.opens_at),
     closesAt: ms(row.closes_at),
-    questions: Array.isArray(row.questions) ? row.questions : [],
+    questions: normalizeQuestions(row.questions),
   }
 }
 
@@ -127,21 +131,32 @@ function answerArray(value: unknown): string[] {
   return Array.isArray(value) ? value.map((item) => answerText(item)) : []
 }
 
-function optionLabel(options: string[], index: number): string {
+function optionLabel(
+  options: Extract<Question, { type: 'multiple_choice' }>['options'],
+  index: number,
+): string {
   const letter = String.fromCharCode(65 + index)
-  const text = options[index]
-  return `${letter}. ${typeof text === 'string' && text.trim() ? text : '—'}`
+  const text = options[index]?.text
+  return `${letter}. ${text?.trim() ? text : '—'}`
 }
 
 function selectedOptions(q: Extract<Question, { type: 'multiple_choice' }>, answer: unknown): string[] {
+  const optionIndexes = new Map(q.options.map((option, index) => [option.id, index]))
   const indexes = Array.isArray(answer)
-    ? answer.filter(
-        (value): value is number =>
-          typeof value === 'number' &&
+    ? answer.flatMap((value) => {
+        if (typeof value === 'string') {
+          const index = optionIndexes.get(value)
+          return index === undefined ? [] : [index]
+        }
+        // Supports result rendering for a response submitted before choice
+        // IDs were added. New submissions send only string option IDs.
+        return typeof value === 'number' &&
           Number.isInteger(value) &&
           value >= 0 &&
-          value < q.options.length,
-      )
+          value < q.options.length
+          ? [value]
+          : []
+      })
     : []
   const unique = [...new Set(indexes)].sort((a, b) => a - b)
   return unique.length > 0 ? unique.map((index) => optionLabel(q.options, index)) : [NO_ANSWER]
@@ -207,7 +222,10 @@ function correctAnswerLines(q: Exclude<Question, { type: 'essay' }>): string[] {
   switch (q.type) {
     case 'multiple_choice':
       return q.correct.length > 0
-        ? q.correct.map((index) => optionLabel(q.options, index))
+        ? q.correct.flatMap((id) => {
+            const index = q.options.findIndex((option) => option.id === id)
+            return index < 0 ? [] : [optionLabel(q.options, index)]
+          })
         : [NO_CORRECT_ANSWER]
     case 'true_false':
       return [q.answer ? 'True' : 'False']
@@ -369,17 +387,20 @@ export async function getPublicTestByCode(
   if (!test) return null
 
   const row = test as TestRow
-  const questions = Array.isArray(row.questions) ? row.questions : []
+  const questions = normalizeQuestions(row.questions)
   return {
     id: row.id,
     title: row.title,
     code: row.code,
     timeLimit: row.time_limit,
     shuffle: row.shuffle,
+    shuffleChoices: row.shuffle_choices ?? true,
     singleAttempt: row.single_attempt,
     opensAt: ms(row.opens_at),
     closesAt: ms(row.closes_at),
-    questions: questions.map(toPublicQuestion),
+    questions: questions.map((question) =>
+      toPublicQuestion(question, row.shuffle_choices ?? true),
+    ),
   }
 }
 
@@ -438,6 +459,7 @@ export async function createTest(
       code,
       time_limit: input.timeLimit,
       shuffle: input.shuffle,
+      shuffle_choices: input.shuffleChoices,
       single_attempt: input.singleAttempt,
       opens_at: input.opensAt ? new Date(input.opensAt).toISOString() : null,
       closes_at: input.closesAt ? new Date(input.closesAt).toISOString() : null,
@@ -502,6 +524,7 @@ export async function updateTest(
       code,
       time_limit: input.timeLimit,
       shuffle: input.shuffle,
+      shuffle_choices: input.shuffleChoices,
       single_attempt: input.singleAttempt,
       opens_at: input.opensAt ? new Date(input.opensAt).toISOString() : null,
       closes_at: input.closesAt ? new Date(input.closesAt).toISOString() : null,
@@ -520,12 +543,32 @@ export async function updateTest(
   return { ok: true, id: (data as { id: string }).id }
 }
 
-/* RLS ("tests_delete_own") makes this a no-op if the caller doesn't
-   own the row — no separate ownership check needed here. */
-export async function deleteTest(id: string): Promise<void> {
+export type DeleteTestResult = { ok: true } | { ok: false; error: string }
+
+/* RLS ("tests_delete_own") makes an unauthorized delete a no-op. Request the
+   deleted id back so callers can distinguish that outcome from a successful
+   deletion and keep the confirmation dialog open with a useful error. */
+export async function deleteTest(id: string): Promise<DeleteTestResult> {
   const db = await createClient()
-  const { error } = await db.from('tests').delete().eq('id', id)
-  if (error) throw new Error(error.message)
+  const { data, error } = await db
+    .from('tests')
+    .delete()
+    .eq('id', id)
+    .select('id')
+    .maybeSingle()
+  if (error) {
+    return {
+      ok: false,
+      error: 'Unable to delete this test. Please try again.',
+    }
+  }
+  if (!data) {
+    return {
+      ok: false,
+      error: 'This test was not found or you no longer have permission to delete it.',
+    }
+  }
+  return { ok: true }
 }
 
 export async function duplicateTest(id: string): Promise<{ id: string } | null> {
@@ -553,10 +596,11 @@ export async function duplicateTest(id: string): Promise<{ id: string } | null> 
       code,
       time_limit: row.time_limit,
       shuffle: row.shuffle,
+      shuffle_choices: row.shuffle_choices ?? true,
       single_attempt: row.single_attempt,
       opens_at: row.opens_at,
       closes_at: row.closes_at,
-      questions: row.questions,
+      questions: normalizeQuestions(row.questions),
     })
     .select('id')
     .single()
@@ -642,7 +686,7 @@ export async function submitResponse(
     }
   }
 
-  const questions = Array.isArray(row.questions) ? row.questions : []
+  const questions = normalizeQuestions(row.questions)
   let autoEarned = 0
   let autoPossible = 0
   let needsGrading = false

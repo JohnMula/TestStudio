@@ -10,15 +10,25 @@ import {
   getTest,
   listTests,
   type CreateTestResult,
+  type DeleteTestResult,
   type UpdateTestResult,
   updateTest as updateTestAction,
 } from '@/lib/actions'
-import { makeId, type CreateTestInput, type Question, type Test } from '@/lib/types'
+import {
+  makeId,
+  normalizeQuestion,
+  normalizeQuestions,
+  type CreateTestInput,
+  type Question,
+  type QType,
+  type Test,
+} from '@/lib/types'
 
 /* Re-export the shared, server-safe types and pure helpers so existing
    components can keep importing them from '@/lib/store'. */
 export * from '@/lib/types'
 export type { CreateTestResult } from '@/lib/actions'
+export type { DeleteTestResult } from '@/lib/actions'
 export type { UpdateTestResult } from '@/lib/actions'
 
 /* ============================================================
@@ -57,9 +67,10 @@ export async function updateTest(
   return res
 }
 
-export async function deleteTest(id: string): Promise<void> {
-  await deleteTestAction(id)
-  await Promise.all([mutate('tests'), mutate(['test', id])])
+export async function deleteTest(id: string): Promise<DeleteTestResult> {
+  const res = await deleteTestAction(id)
+  if (res.ok) await Promise.all([mutate('tests'), mutate(['test', id])])
+  return res
 }
 
 export async function duplicateTest(
@@ -102,7 +113,12 @@ function readBank(): BankItem[] {
   if (bankCache) return bankCache
   try {
     const raw = window.localStorage.getItem(BANK_KEY)
-    bankCache = raw ? (JSON.parse(raw) as BankItem[]) : []
+    bankCache = raw
+      ? (JSON.parse(raw) as BankItem[]).map((item) => ({
+          ...item,
+          question: normalizeQuestion(item.question),
+        }))
+      : []
   } catch {
     bankCache = []
   }
@@ -153,7 +169,9 @@ export type Draft = {
   code: string
   timeLimit: string
   shuffle: boolean
+  shuffleChoices: boolean
   singleAttempt: boolean
+  questionType: QType
   questions: Question[]
   opensAt: number | null
   closesAt: number | null
@@ -164,7 +182,16 @@ export function loadDraft(): Draft | null {
   if (typeof window === 'undefined') return null
   try {
     const raw = window.localStorage.getItem(DRAFT_KEY)
-    return raw ? (JSON.parse(raw) as Draft) : null
+    if (!raw) return null
+    const draft = JSON.parse(raw) as Draft
+    const questions = normalizeQuestions(draft.questions)
+    return {
+      ...draft,
+      shuffleChoices: draft.shuffleChoices ?? true,
+      questionType:
+        draft.questionType ?? questions[questions.length - 1]?.type ?? 'multiple_choice',
+      questions,
+    }
   } catch {
     return null
   }
@@ -187,7 +214,7 @@ export function clearDraft() {
    page. Two kinds of thing live here:
 
      - defaults that pre-fill the create-test form (time limit,
-       shuffle, single-attempt). The published test still stores
+       question shuffle, choice shuffle, single-attempt). The published test still stores
        its own values once created — this only affects what a
        NEW test starts as, and can always be changed per test
        before publishing.
@@ -203,6 +230,7 @@ const SETTINGS_KEY = 'teststudio.settings.v1'
 export type AppSettings = {
   defaultTimeLimit: string
   defaultShuffle: boolean
+  defaultShuffleChoices: boolean
   defaultSingleAttempt: boolean
   exportIncludeTimestamps: boolean
 }
@@ -210,6 +238,7 @@ export type AppSettings = {
 export const DEFAULT_SETTINGS: AppSettings = {
   defaultTimeLimit: '15m',
   defaultShuffle: true,
+  defaultShuffleChoices: true,
   defaultSingleAttempt: false,
   exportIncludeTimestamps: true,
 }

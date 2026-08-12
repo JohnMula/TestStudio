@@ -102,6 +102,7 @@ function TestDetail() {
   const [origin, setOrigin] = useState('')
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
 
   useEffect(() => {
     setOrigin(window.location.origin)
@@ -151,9 +152,21 @@ function TestDetail() {
   }
 
   async function handleDelete() {
+    if (!test || deleting) return
     setDeleting(true)
-    await deleteTest(test!.id)
-    router.push('/dashboard')
+    setDeleteError(null)
+    try {
+      const result = await deleteTest(test.id)
+      if (result.ok) {
+        router.replace('/dashboard')
+        return
+      }
+      setDeleteError(result.error)
+    } catch {
+      setDeleteError('Unable to delete this test. Please try again.')
+    } finally {
+      setDeleting(false)
+    }
   }
 
   async function handleDuplicate() {
@@ -180,7 +193,8 @@ function TestDetail() {
           {test.questions.length}{' '}
           {test.questions.length === 1 ? 'question' : 'questions'} · {possible}{' '}
           {possible === 1 ? 'point' : 'points'} · Time limit {test.timeLimit} ·
-          Shuffle {test.shuffle ? 'on' : 'off'}
+          Shuffle questions {test.shuffle ? 'on' : 'off'} · choices{' '}
+          {test.shuffleChoices ? 'on' : 'off'}
         </p>
         {test.opensAt || test.closesAt ? (
           <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -295,7 +309,10 @@ function TestDetail() {
             </button>
             <button
               type="button"
-              onClick={() => setConfirmDelete(true)}
+              onClick={() => {
+                setDeleteError(null)
+                setConfirmDelete(true)
+              }}
               className="flex items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-destructive"
             >
               <Trash2 className="size-4" aria-hidden />
@@ -337,10 +354,21 @@ function TestDetail() {
                   : "This permanently deletes the test. This can't be undone."}
               </p>
             </div>
+            {deleteError ? (
+              <p
+                role="alert"
+                className="rounded-[10px] border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+              >
+                {deleteError}
+              </p>
+            ) : null}
             <div className="flex items-center justify-end gap-3">
               <button
                 type="button"
-                onClick={() => setConfirmDelete(false)}
+                onClick={() => {
+                  setDeleteError(null)
+                  setConfirmDelete(false)
+                }}
                 disabled={deleting}
                 className="rounded-[10px] border border-border bg-card px-4 py-2 text-sm font-medium text-foreground shadow-soft transition-colors hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-60"
               >

@@ -44,26 +44,27 @@ export function QuestionTaker({
         <legend className="sr-only">{meta.label} answer</legend>
 
         {question.type === 'multiple_choice'
-          ? question.options.map((opt, oi) => {
+          ? question.options.map((option) => {
+              const opt = option.text
               const sel = Array.isArray(answer)
-                ? (answer as number[]).includes(oi)
+                ? (answer as string[]).includes(option.id)
                 : false
               function toggle() {
                 if (question.type !== 'multiple_choice') return
-                const cur = Array.isArray(answer) ? (answer as number[]) : []
+                const cur = Array.isArray(answer) ? (answer as string[]) : []
                 if (question.multiple) {
                   onChange(
-                    cur.includes(oi)
-                      ? cur.filter((x) => x !== oi)
-                      : [...cur, oi],
+                    cur.includes(option.id)
+                      ? cur.filter((id) => id !== option.id)
+                      : [...cur, option.id],
                   )
                 } else {
-                  onChange([oi])
+                  onChange([option.id])
                 }
               }
               return (
                 <button
-                  key={oi}
+                  key={option.id}
                   type="button"
                   onClick={toggle}
                   className={`flex items-center gap-3 rounded-[12px] border px-4 py-3 text-left text-sm transition-colors ${

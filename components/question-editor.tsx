@@ -192,31 +192,40 @@ function MultipleChoiceBody({
   patch: (p: Partial<MultipleChoiceQ>) => void
 }) {
   function toggleCorrect(i: number) {
+    const optionId = q.options[i]?.id
+    if (!optionId) return
     if (q.multiple) {
-      const has = q.correct.includes(i)
+      const has = q.correct.includes(optionId)
       patch({
-        correct: has ? q.correct.filter((x) => x !== i) : [...q.correct, i],
+        correct: has
+          ? q.correct.filter((id) => id !== optionId)
+          : [...q.correct, optionId],
       })
     } else {
-      patch({ correct: [i] })
+      patch({ correct: [optionId] })
     }
   }
 
   function setOption(i: number, value: string) {
-    patch({ options: q.options.map((o, idx) => (idx === i ? value : o)) })
+    patch({
+      options: q.options.map((option, idx) =>
+        idx === i ? { ...option, text: value } : option,
+      ),
+    })
   }
 
   function addOption() {
-    if (q.options.length < 6) patch({ options: [...q.options, ''] })
+    if (q.options.length < 6) {
+      patch({ options: [...q.options, { id: makeId(), text: '' }] })
+    }
   }
 
   function removeOption(i: number) {
     if (q.options.length <= 2) return
+    const optionId = q.options[i]?.id
     const options = q.options.filter((_, idx) => idx !== i)
-    const correct = q.correct
-      .filter((c) => c !== i)
-      .map((c) => (c > i ? c - 1 : c))
-    patch({ options, correct: correct.length ? correct : [0] })
+    const correct = q.correct.filter((id) => id !== optionId)
+    patch({ options, correct: correct.length ? correct : [options[0].id] })
   }
 
   return (
@@ -229,7 +238,11 @@ function MultipleChoiceBody({
             const multiple = e.target.checked
             patch({
               multiple,
-              correct: multiple ? q.correct : [q.correct[0] ?? 0],
+              correct: multiple
+                ? q.correct
+                : [q.correct[0] ?? q.options[0]?.id].filter(
+                    (id): id is string => Boolean(id),
+                  ),
             })
           }}
           className="size-3.5 accent-[var(--color-primary)]"
@@ -242,9 +255,9 @@ function MultipleChoiceBody({
           : 'Tap the circle to mark the correct answer.'}
       </span>
       {q.options.map((opt, i) => {
-        const correct = q.correct.includes(i)
+        const correct = q.correct.includes(opt.id)
         return (
-          <div key={i} className="flex items-center gap-2">
+          <div key={opt.id} className="flex items-center gap-2">
             <button
               type="button"
               onClick={() => toggleCorrect(i)}
@@ -261,7 +274,7 @@ function MultipleChoiceBody({
               <Check className="size-3.5" aria-hidden />
             </button>
             <input
-              value={opt}
+              value={opt.text}
               onChange={(e) => setOption(i, e.target.value)}
               placeholder={`Option ${i + 1}`}
               className={inputCls}

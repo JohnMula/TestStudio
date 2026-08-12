@@ -24,10 +24,15 @@ type BaseQ = {
   explanation?: string
 }
 
+export type ChoiceOption = {
+  id: string
+  text: string
+}
+
 export type MultipleChoiceQ = BaseQ & {
   type: 'multiple_choice'
-  options: string[]
-  correct: number[]
+  options: ChoiceOption[]
+  correct: string[]
   multiple: boolean
 }
 export type TrueFalseQ = BaseQ & { type: 'true_false'; answer: boolean }
@@ -134,11 +139,12 @@ export function blankQuestion(type: QType): Question {
   const base = { id: makeId(), prompt: '', points: 1, explanation: '' }
   switch (type) {
     case 'multiple_choice':
+      const firstOption = { id: makeId(), text: '' }
       return {
         ...base,
         type,
-        options: ['', ''],
-        correct: [0],
+        options: [firstOption, { id: makeId(), text: '' }],
+        correct: [firstOption.id],
         multiple: false,
       }
     case 'true_false':
@@ -177,6 +183,79 @@ export function seededShuffle<T>(arr: readonly T[], seed: string): T[] {
   return out
 }
 
+/* Choice IDs, rather than their rendered A/B/C/D positions, are the answer
+   identity. The legacy helper makes tests saved before choice IDs existed
+   safe to read and edit without a database-wide JSON rewrite. */
+function legacyChoiceOptionId(questionId: string, index: number): string {
+  return `${questionId}:option:${index}`
+}
+
+export function normalizeQuestion(question: Question): Question {
+  if (question.type !== 'multiple_choice') return question
+
+  const rawOptions = question.options as unknown[]
+  const options: ChoiceOption[] = rawOptions.map((raw, index) => {
+    if (
+      raw &&
+      typeof raw === 'object' &&
+      typeof (raw as ChoiceOption).id === 'string' &&
+      typeof (raw as ChoiceOption).text === 'string'
+    ) {
+      return raw as ChoiceOption
+    }
+    return {
+      id: legacyChoiceOptionId(question.id, index),
+      text: typeof raw === 'string' ? raw : '',
+    }
+  })
+  const ids = new Set(options.map((option) => option.id))
+  const correct = Array.isArray(question.correct)
+    ? question.correct.flatMap((value) => {
+        if (typeof value === 'string' && ids.has(value)) return [value]
+        // Old attempts used original option indexes. This is only a
+        // compatibility conversion; new answers always contain option IDs.
+        if (typeof value === 'number' && Number.isInteger(value)) {
+          const option = options[value]
+          return option ? [option.id] : []
+        }
+        return []
+      })
+    : []
+
+  return {
+    ...question,
+    options,
+    correct: [...new Set(correct)],
+  }
+}
+
+export function normalizeQuestions(questions: unknown): Question[] {
+  return Array.isArray(questions)
+    ? questions.map((question) => normalizeQuestion(question as Question))
+    : []
+}
+
+const EXPLICIT_CHOICE_LABEL = /^\s*[A-Da-d]\.(?:\s|$)/
+
+/* The label is creator-authored content, not an app-assigned position. Only
+   treat it as intentional when every option carries the label pattern, so a
+   sentence such as "A. fact is ..." does not disable shuffling by itself. */
+export function choicesHaveExplicitLabels(options: readonly ChoiceOption[]): boolean {
+  return (
+    options.length > 1 &&
+    options.every((option) => EXPLICIT_CHOICE_LABEL.test(option.text))
+  )
+}
+
+export function orderedChoiceOptions(
+  options: readonly ChoiceOption[],
+  seed: string,
+  shuffleChoices: boolean,
+): ChoiceOption[] {
+  if (!shuffleChoices || choicesHaveExplicitLabels(options)) return [...options]
+  return seededShuffle(options, seed)
+}
+
 /* ---------- public (answer-free) question shapes ---------- */
 
 export type PublicQuestion =
@@ -185,7 +264,7 @@ export type PublicQuestion =
       type: 'multiple_choice'
       prompt: string
       points: number
-      options: string[]
+      options: ChoiceOption[]
       multiple: boolean
     }
   | { id: string; type: 'true_false'; prompt: string; points: number }
@@ -221,7 +300,10 @@ function matchingRightKey(index: number): string {
   return `r${index}`
 }
 
-export function toPublicQuestion(q: Question): PublicQuestion {
+export function toPublicQuestion(
+  q: Question,
+  shuffleChoices = false,
+): PublicQuestion {
   switch (q.type) {
     case 'multiple_choice':
       return {
@@ -229,7 +311,7 @@ export function toPublicQuestion(q: Question): PublicQuestion {
         type: q.type,
         prompt: q.prompt,
         points: q.points,
-        options: q.options,
+        options: orderedChoiceOptions(q.options, `${q.id}:choices`, shuffleChoices),
         multiple: q.multiple,
       }
     case 'true_false':
@@ -275,6 +357,7 @@ export type PublicTest = {
   code: string
   timeLimit: string
   shuffle: boolean
+  shuffleChoices: boolean
   singleAttempt: boolean
   opensAt: number | null
   closesAt: number | null
@@ -332,9 +415,20 @@ export function gradeQuestion(q: Question, answer: unknown): Grade {
     case 'essay':
       return { auto: false, correct: false, earned: 0 }
     case 'multiple_choice': {
-      const sel = Array.isArray(answer) ? (answer as number[]) : []
+      const sel = Array.isArray(answer)
+        ? answer.flatMap((value) => {
+            if (typeof value === 'string') return [value]
+            // Compatibility for responses submitted before option IDs were
+            // introduced. Display positions are never used for new answers.
+            if (typeof value === 'number' && Number.isInteger(value)) {
+              return q.options[value] ? [q.options[value].id] : []
+            }
+            return []
+          })
+        : []
       const want = new Set(q.correct)
-      const ok = sel.length === want.size && sel.every((i) => want.has(i))
+      const unique = [...new Set(sel)]
+      const ok = unique.length === want.size && unique.every((id) => want.has(id))
       return win(ok)
     }
     case 'true_false':
@@ -393,6 +487,7 @@ export type TestSnapshot = {
   code: string
   timeLimit: string
   shuffle: boolean
+  shuffleChoices: boolean
   singleAttempt: boolean
   opensAt: number | null
   closesAt: number | null
@@ -417,6 +512,7 @@ export type Test = {
   code: string
   timeLimit: string
   shuffle: boolean
+  shuffleChoices: boolean
   singleAttempt: boolean
   createdAt: number
   questions: Question[]
@@ -450,6 +546,7 @@ export type CreateTestInput = {
   code?: string
   timeLimit: string
   shuffle: boolean
+  shuffleChoices: boolean
   singleAttempt: boolean
   questions: Question[]
   opensAt?: number | null
@@ -514,8 +611,15 @@ export function validateCreateTestInput(input: CreateTestInput): string | null {
         if (q.options.length > LIMITS.optionCount) {
           return `Question ${n}: too many options (max ${LIMITS.optionCount}).`
         }
+        const optionIds = new Set(q.options.map((option) => option.id))
+        if (q.options.some((option) => !option.id) || optionIds.size !== q.options.length) {
+          return `Question ${n}: each option needs a unique ID.`
+        }
+        if (q.correct.some((id) => !optionIds.has(id))) {
+          return `Question ${n}: a correct answer does not match an option.`
+        }
         for (const opt of q.options) {
-          const e = tooLong(opt, LIMITS.optionText, `Question ${n} option`)
+          const e = tooLong(opt.text, LIMITS.optionText, `Question ${n} option`)
           if (e) return e
         }
         break

@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Suspense, useCallback, useEffect, useRef, useState } from 'react'
-import { ArrowLeft, Eye, Library, Check, X, Calendar } from 'lucide-react'
+import { ArrowLeft, Eye, Library, Check, X, Plus } from 'lucide-react'
 import { SiteHeader } from '@/components/site-header'
 import { TypePicker } from '@/components/type-picker'
 import { QuestionEditor } from '@/components/question-editor'
@@ -47,9 +47,10 @@ function CreateEditor() {
   const [title, setTitle] = useState('')
   const [timeLimit, setTimeLimit] = useState<TimeOpt>('15m')
   const [shuffle, setShuffle] = useState(true)
+  const [shuffleChoices, setShuffleChoices] = useState(true)
   const [singleAttempt, setSingleAttempt] = useState(false)
   const [questions, setQuestions] = useState<Question[]>([])
-  const [recentType, setRecentType] = useState<QType>('multiple_choice')
+  const [questionType, setQuestionType] = useState<QType>('multiple_choice')
 
   const [customCode, setCustomCode] = useState('')
   const [opensAt, setOpensAt] = useState('')
@@ -92,12 +93,13 @@ function CreateEditor() {
               : '15m',
           )
           setShuffle(test.shuffle)
+          setShuffleChoices(test.shuffleChoices)
           setSingleAttempt(test.singleAttempt)
           setQuestions(test.questions)
           setOpensAt(toLocalInput(test.opensAt ?? null))
           setClosesAt(toLocalInput(test.closesAt ?? null))
           const lastQuestion = test.questions[test.questions.length - 1]
-          if (lastQuestion) setRecentType(lastQuestion.type)
+          if (lastQuestion) setQuestionType(lastQuestion.type)
         } catch {
           if (active) {
             setLoadError('Unable to load this test. Please try again.')
@@ -114,17 +116,19 @@ function CreateEditor() {
       setCustomCode(d.code ?? '')
       setTimeLimit((d.timeLimit as TimeOpt) ?? '15m')
       setShuffle(d.shuffle)
+      setShuffleChoices(d.shuffleChoices)
       setSingleAttempt(d.singleAttempt)
       setQuestions(d.questions)
       setOpensAt(toLocalInput(d.opensAt))
       setClosesAt(toLocalInput(d.closesAt))
-      if (d.questions.length) setRecentType(d.questions[d.questions.length - 1].type)
+      setQuestionType(d.questionType)
     } else {
       // No draft yet — start from this browser's saved defaults
       // (Settings page) instead of the hardcoded fallbacks.
       const s = loadSettings()
       setTimeLimit(s.defaultTimeLimit as TimeOpt)
       setShuffle(s.defaultShuffle)
+      setShuffleChoices(s.defaultShuffleChoices)
       setSingleAttempt(s.defaultSingleAttempt)
     }
       if (active) setLoaded(true)
@@ -144,7 +148,9 @@ function CreateEditor() {
         code: customCode,
         timeLimit,
         shuffle,
+        shuffleChoices,
         singleAttempt,
+        questionType,
         questions,
         opensAt: opensAt ? new Date(opensAt).getTime() : null,
         closesAt: closesAt ? new Date(closesAt).getTime() : null,
@@ -158,7 +164,9 @@ function CreateEditor() {
     customCode,
     timeLimit,
     shuffle,
+    shuffleChoices,
     singleAttempt,
+    questionType,
     questions,
     opensAt,
     closesAt,
@@ -166,9 +174,8 @@ function CreateEditor() {
   ])
 
   /* ---------- question mutations ---------- */
-  function addQuestion(type: QType) {
-    setQuestions((qs) => [...qs, blankQuestion(type)])
-    setRecentType(type)
+  function addQuestion() {
+    setQuestions((qs) => [...qs, blankQuestion(questionType)])
   }
   function updateQuestion(q: Question) {
     setQuestions((qs) => qs.map((x) => (x.id === q.id ? q : x)))
@@ -178,7 +185,6 @@ function CreateEditor() {
   }
   function insertMany(items: Question[]) {
     setQuestions((qs) => [...qs, ...items])
-    if (items.length) setRecentType(items[items.length - 1].type)
   }
 
   /* ---------- drag reorder (pointer-based) ---------- */
@@ -231,6 +237,7 @@ function CreateEditor() {
       code: customCode.trim() ? customCode.trim() : undefined,
       timeLimit,
       shuffle,
+      shuffleChoices,
       singleAttempt,
       questions,
       opensAt: opensAt ? new Date(opensAt).getTime() : null,
@@ -349,6 +356,12 @@ function CreateEditor() {
             description="Randomize order for each test-taker."
             checked={shuffle}
             onChange={setShuffle}
+          />
+          <ToggleRow
+            label="Shuffle choices"
+            description="Randomize multiple-choice options while keeping each answer correct."
+            checked={shuffleChoices}
+            onChange={setShuffleChoices}
           />
           <ToggleRow
             label="Single attempt"

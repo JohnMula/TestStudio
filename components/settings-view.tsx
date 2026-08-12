@@ -136,7 +136,7 @@ function Row({
        as a toggle. Cut rather than left in as a dead switch.
 
    Kept, and made to actually do something:
-     - Time limit / shuffle / single-attempt defaults now persist to
+     - Time limit / question-shuffle / choice-shuffle / single-attempt defaults now persist to
        this browser (localStorage) and genuinely pre-fill the
        create-test form — see app/create/page.tsx. You can still
        change any of them per test before publishing.
@@ -155,6 +155,7 @@ type TimeOpt = (typeof TIME_OPTIONS)[number]
 export function SettingsView() {
   const [timeLimit, setTimeLimit] = useState<TimeOpt>('15m')
   const [shuffle, setShuffle] = useState(true)
+  const [shuffleChoices, setShuffleChoices] = useState(true)
   const [singleAttempt, setSingleAttempt] = useState(false)
   const [includeTimestamps, setIncludeTimestamps] = useState(true)
   const [saved, setSaved] = useState(false)
@@ -165,6 +166,7 @@ export function SettingsView() {
     const s = loadSettings()
     setTimeLimit(s.defaultTimeLimit as TimeOpt)
     setShuffle(s.defaultShuffle)
+    setShuffleChoices(s.defaultShuffleChoices)
     setSingleAttempt(s.defaultSingleAttempt)
     setIncludeTimestamps(s.exportIncludeTimestamps)
   }, [])
@@ -173,6 +175,7 @@ export function SettingsView() {
     const next: AppSettings = {
       defaultTimeLimit: timeLimit,
       defaultShuffle: shuffle,
+      defaultShuffleChoices: shuffleChoices,
       defaultSingleAttempt: singleAttempt,
       exportIncludeTimestamps: includeTimestamps,
     }
@@ -207,6 +210,17 @@ export function SettingsView() {
               label="Shuffle questions"
               checked={shuffle}
               onChange={setShuffle}
+            />
+          }
+        />
+        <Row
+          label="Shuffle choices"
+          description="Randomize multiple-choice options while keeping each answer correct."
+          control={
+            <Toggle
+              label="Shuffle choices"
+              checked={shuffleChoices}
+              onChange={setShuffleChoices}
             />
           }
         />
