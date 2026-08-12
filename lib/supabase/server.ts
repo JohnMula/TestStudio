@@ -18,9 +18,9 @@ import { cookies } from 'next/headers'
 
    - createClient(): the anon/publishable key, bound to whatever
      cookie session the current request is carrying. proxy.ts (see
-     the project root) makes sure every browser has a persistent
-     anonymous auth session before this ever runs, so auth.uid()
-     resolves inside RLS policies. Use this for anything that
+     the project root) keeps either an anonymous visitor session or an
+     authenticated Google/Facebook session current, so auth.uid() resolves
+     inside RLS policies. Use this for anything that
      should be scoped to "whichever browser is asking" — ownership
      is enforced by the "tests_*" / "responses_*" RLS policies (see
      the SQL migration), not by application code.

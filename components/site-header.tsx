@@ -1,6 +1,7 @@
 import Image from 'next/image'
 import Link from 'next/link'
 import type { ReactNode } from 'react'
+import { AuthMenu } from '@/components/auth-menu'
 
 export function SiteHeader({
   right,
@@ -28,7 +29,10 @@ export function SiteHeader({
           />
           TestStudio
         </Link>
-        <nav className="flex items-center gap-3 sm:gap-5">{right}</nav>
+        <nav className="flex items-center gap-3 sm:gap-5">
+          {right}
+          <AuthMenu />
+        </nav>
       </div>
     </header>
   )

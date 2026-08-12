@@ -4,12 +4,11 @@ import { NextResponse, type NextRequest } from 'next/server'
 /* ============================================================
    Runs on (almost) every request via the root proxy.ts.
 
-   There's no login in this app — instead, every browser gets a
-   persistent anonymous Supabase Auth session on its first visit,
-   stored in a cookie. That session's auth.uid() is what the
-   "tests_*" / "responses_*" RLS policies key off of, so a device
-   only ever sees the tests it created (see lib/actions.ts and the
-   SQL migration).
+   OAuth sign-in is supported alongside the app's existing anonymous mode.
+   Every browser keeps a persistent Supabase Auth session in a cookie. Visitors receive an
+   anonymous session; Google/Facebook sign-in replaces it with an
+   authenticated session. Either session supplies auth.uid() for the
+   existing "tests_*" / "responses_*" RLS ownership policies.
    ============================================================ */
 
 export async function updateSession(request: NextRequest) {

@@ -4,6 +4,7 @@ import Image from 'next/image'
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import { Menu, Settings, X } from 'lucide-react'
+import { AuthMenu } from '@/components/auth-menu'
 
 export function LandingNav() {
   const [open, setOpen] = useState(false)
@@ -28,6 +29,7 @@ export function LandingNav() {
         >
           Dashboard
         </Link>
+        <AuthMenu />
         <Link
           href="/settings"
           aria-label="Settings"
@@ -89,6 +91,7 @@ export function LandingNav() {
               >
                 Dashboard
               </Link>
+              <AuthMenu />
               <Link
                 href="/settings"
                 onClick={() => setOpen(false)}
