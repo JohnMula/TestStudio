@@ -281,6 +281,37 @@ export type PublicTest = {
   questions: PublicQuestion[]
 }
 
+/* ---------- post-submission result shapes ---------- */
+
+/* These are intentionally separate from PublicQuestion. They are built from
+   the private question definition on the server and are returned only after a
+   response has been successfully recorded. Keeping them out of PublicTest
+   preserves the pre-submission answer-key boundary. */
+export type ResultQuestionStatus = 'correct' | 'incorrect' | 'manual'
+
+export type ResultQuestionReview = {
+  questionId: string
+  type: QType
+  prompt: string
+  submittedAnswer: string[]
+  correctAnswer?: string[]
+  explanation?: string
+  status: ResultQuestionStatus
+  pointsEarned: number
+  pointsPossible: number
+}
+
+export type TestResult = {
+  scoreEarned: number
+  totalPossible: number
+  percentage: number
+  correctCount: number
+  incorrectCount: number
+  manualGradingCount: number
+  needsGrading: boolean
+  questions: ResultQuestionReview[]
+}
+
 /* ---------- grading (server-side only) ---------- */
 
 function norm(s: string): string {

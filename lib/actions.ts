@@ -4,13 +4,16 @@ import { createServiceClient, createClient } from '@/lib/supabase/server'
 import {
   gradeQuestion,
   makeCode,
+  seededShuffle,
   toPublicQuestion,
   validateCreateTestInput,
   type CreateTestInput,
   type PublicTest,
   type Question,
+  type ResultQuestionReview,
   type Response,
   type Test,
+  type TestResult,
 } from '@/lib/types'
 import {
   rateLimitCreateTest,
@@ -85,6 +88,182 @@ function mapTest(row: TestRow, responses: ResponseRow[]): Test {
       .sort((a, b) => b.submittedAt - a.submittedAt),
     opensAt: ms(row.opens_at),
     closesAt: ms(row.closes_at),
+  }
+}
+
+/* ============================================================
+   Post-submission result formatting
+
+   The helpers below run only inside submitResponse(), where the private
+   question definition is available. Their output is display-ready rather
+   than a copy of the answer key, and is returned only after the response
+   insert succeeds.
+   ============================================================ */
+
+const NO_ANSWER = 'No answer submitted'
+const NO_CORRECT_ANSWER = 'No correct answer configured'
+
+function answerText(value: unknown, fallback = NO_ANSWER): string {
+  return typeof value === 'string' && value.trim() ? value : fallback
+}
+
+function answerArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.map((item) => answerText(item)) : []
+}
+
+function optionLabel(options: string[], index: number): string {
+  const letter = String.fromCharCode(65 + index)
+  const text = options[index]
+  return `${letter}. ${typeof text === 'string' && text.trim() ? text : '—'}`
+}
+
+function selectedOptions(q: Extract<Question, { type: 'multiple_choice' }>, answer: unknown): string[] {
+  const indexes = Array.isArray(answer)
+    ? answer.filter(
+        (value): value is number =>
+          typeof value === 'number' &&
+          Number.isInteger(value) &&
+          value >= 0 &&
+          value < q.options.length,
+      )
+    : []
+  const unique = [...new Set(indexes)].sort((a, b) => a - b)
+  return unique.length > 0 ? unique.map((index) => optionLabel(q.options, index)) : [NO_ANSWER]
+}
+
+function matchingLines(q: Extract<Question, { type: 'matching' }>, answer: unknown): string[] {
+  if (q.pairs.length === 0) return [NO_ANSWER]
+
+  const submitted =
+    answer && typeof answer === 'object' && !Array.isArray(answer)
+      ? (answer as Record<string, unknown>)
+      : {}
+  const rightByKey = new Map(
+    seededShuffle(q.pairs, `${q.id}:rights`).map((pair, index) => [
+      `r${index}`,
+      pair.right,
+    ]),
+  )
+
+  return q.pairs.map((pair) => {
+    const rightKey = submitted[pair.id]
+    const right = typeof rightKey === 'string' ? rightByKey.get(rightKey) : undefined
+    return `${answerText(pair.left, '—')} → ${answerText(right)}`
+  })
+}
+
+function correctMatchingLines(q: Extract<Question, { type: 'matching' }>): string[] {
+  return q.pairs.length > 0
+    ? q.pairs.map(
+        (pair) =>
+          `${answerText(pair.left, '—')} → ${answerText(pair.right, NO_CORRECT_ANSWER)}`,
+      )
+    : [NO_CORRECT_ANSWER]
+}
+
+function submittedAnswerLines(q: Question, answer: unknown): string[] {
+  switch (q.type) {
+    case 'multiple_choice':
+      return selectedOptions(q, answer)
+    case 'true_false':
+      return answer === true ? ['True'] : answer === false ? ['False'] : [NO_ANSWER]
+    case 'identification':
+    case 'essay':
+      return [answerText(answer)]
+    case 'matching':
+      return matchingLines(q, answer)
+    case 'fill_blank': {
+      const answers = answerArray(answer)
+      return q.blanks.length > 0
+        ? q.blanks.map((_, index) => `Blank ${index + 1}: ${answers[index] ?? NO_ANSWER}`)
+        : [NO_ANSWER]
+    }
+    case 'enumeration': {
+      const answers = answerArray(answer)
+      return q.answers.length > 0
+        ? q.answers.map((_, index) => `${index + 1}. ${answers[index] ?? NO_ANSWER}`)
+        : [NO_ANSWER]
+    }
+  }
+}
+
+function correctAnswerLines(q: Exclude<Question, { type: 'essay' }>): string[] {
+  switch (q.type) {
+    case 'multiple_choice':
+      return q.correct.length > 0
+        ? q.correct.map((index) => optionLabel(q.options, index))
+        : [NO_CORRECT_ANSWER]
+    case 'true_false':
+      return [q.answer ? 'True' : 'False']
+    case 'identification':
+      return [answerText(q.answer, NO_CORRECT_ANSWER)]
+    case 'matching':
+      return correctMatchingLines(q)
+    case 'fill_blank':
+      return q.blanks.length > 0
+        ? q.blanks.map(
+            (blank, index) =>
+              `Blank ${index + 1}: ${answerText(blank.answers[0], NO_CORRECT_ANSWER)}`,
+          )
+        : [NO_CORRECT_ANSWER]
+    case 'enumeration':
+      return q.answers.length > 0
+        ? q.answers.map(
+            (value, index) => `${index + 1}. ${answerText(value, NO_CORRECT_ANSWER)}`,
+          )
+        : [NO_CORRECT_ANSWER]
+  }
+}
+
+function buildTestResult(
+  questions: Question[],
+  rawAnswers: Record<string, unknown>,
+  scoreEarned: number,
+): TestResult {
+  let correctCount = 0
+  let incorrectCount = 0
+  let manualGradingCount = 0
+  const totalPossible = questions.reduce((sum, question) => sum + question.points, 0)
+
+  const resultQuestions: ResultQuestionReview[] = questions.map((question) => {
+    const grade = gradeQuestion(question, rawAnswers[question.id])
+    const status = !grade.auto
+      ? 'manual'
+      : grade.correct
+        ? 'correct'
+        : 'incorrect'
+
+    if (status === 'correct') correctCount += 1
+    if (status === 'incorrect') incorrectCount += 1
+    if (status === 'manual') manualGradingCount += 1
+
+    return {
+      questionId: question.id,
+      type: question.type,
+      prompt: question.prompt,
+      submittedAnswer: submittedAnswerLines(question, rawAnswers[question.id]),
+      ...(question.type === 'essay'
+        ? {}
+        : { correctAnswer: correctAnswerLines(question) }),
+      ...(question.explanation?.trim()
+        ? { explanation: question.explanation.trim() }
+        : {}),
+      status,
+      pointsEarned: grade.earned,
+      pointsPossible: question.points,
+    }
+  })
+
+  return {
+    scoreEarned,
+    totalPossible,
+    percentage:
+      totalPossible > 0 ? Math.round((scoreEarned / totalPossible) * 100) : 0,
+    correctCount,
+    incorrectCount,
+    manualGradingCount,
+    needsGrading: manualGradingCount > 0,
+    questions: resultQuestions,
   }
 }
 
@@ -300,9 +479,7 @@ export async function duplicateTest(id: string): Promise<{ id: string } | null> 
 export type SubmitResult =
   | {
       ok: true
-      autoEarned: number
-      autoPossible: number
-      needsGrading: boolean
+      result: TestResult
     }
   | { ok: false; error: string }
 
@@ -406,7 +583,14 @@ export async function submitResponse(
   })
   if (insErr) return { ok: false, error: insErr.message }
 
-  return { ok: true, autoEarned, autoPossible, needsGrading }
+  // This payload deliberately comes after the successful insert. It is the
+  // only point at which correct answers and rationalizations are released to
+  // the test-taker, and it is derived from the same private questions used
+  // for the server-side grade above.
+  return {
+    ok: true,
+    result: buildTestResult(questions, rawAnswers, autoEarned),
+  }
 }
 
 /* Lets the intro screen warn a repeat test-taker up front, before

@@ -7,6 +7,7 @@ import useSWR from 'swr'
 import { Trophy, ArrowRight, Clock, Lock, Loader2 } from 'lucide-react'
 import { SiteHeader } from '@/components/site-header'
 import { QuestionTaker } from '@/components/question-taker'
+import { ResultQuestionCard } from '@/components/result-question-card'
 import { TurnstileWidget } from '@/components/turnstile-widget'
 import {
   getPublicTestByCode,
@@ -20,14 +21,9 @@ import {
   saveQuizProgress,
   clearQuizProgress,
 } from '@/lib/store'
+import type { TestResult } from '@/lib/types'
 
 type Stage = 'intro' | 'quiz' | 'result'
-
-type Result = {
-  autoEarned: number
-  autoPossible: number
-  needsGrading: boolean
-}
 
 /* Real countdown + auto-submit for the time limit set on the test.
    This is enforced client-side only — there's no account/session to
@@ -59,7 +55,7 @@ export default function TakeTestPage() {
   const [stage, setStage] = useState<Stage>('intro')
   const [name, setName] = useState('')
   const [answers, setAnswers] = useState<Record<string, unknown>>({})
-  const [result, setResult] = useState<Result | null>(null)
+  const [result, setResult] = useState<TestResult | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [captchaToken, setCaptchaToken] = useState('')
@@ -201,6 +197,14 @@ export default function TakeTestPage() {
   const answeredCount = orderedQuestions.filter(
     (q) => answers[q.id] !== undefined,
   ).length
+  const orderedReviews = result
+    ? orderedQuestions.flatMap((question) => {
+        const review = result.questions.find(
+          (item) => item.questionId === question.id,
+        )
+        return review ? [review] : []
+      })
+    : []
 
   async function submit() {
     if (!test || submitting) return
@@ -214,11 +218,7 @@ export default function TakeTestPage() {
       return
     }
     clearQuizProgress(test.id)
-    setResult({
-      autoEarned: res.autoEarned,
-      autoPossible: res.autoPossible,
-      needsGrading: res.needsGrading,
-    })
+    setResult(res.result)
     setStage('result')
     window.scrollTo({ top: 0 })
   }
@@ -347,23 +347,44 @@ export default function TakeTestPage() {
       ) : null}
 
       {stage === 'result' && result ? (
-        <section className="flex flex-col items-center gap-6 rounded-[16px] border border-border bg-card p-6 text-center shadow-soft sm:p-10">
+        <div className="flex flex-col gap-8">
+          <section className="flex flex-col items-center gap-6 rounded-[16px] border border-border bg-card p-6 text-center shadow-soft sm:p-10">
           <span className="flex size-14 items-center justify-center rounded-full bg-accent text-primary">
             <Trophy className="size-7" aria-hidden />
           </span>
-          <div className="flex flex-col gap-1">
+          <div className="flex w-full flex-col gap-1">
+            <span className="font-mono text-xs uppercase tracking-[0.18em] text-muted-foreground">
+              Your results
+            </span>
             <h1 className="font-heading text-xl font-semibold tracking-tight text-foreground sm:text-2xl">
-              You scored {result.autoEarned}/{result.autoPossible}
+              {formatPoints(result.scoreEarned)} / {formatPoints(result.totalPossible)}
             </h1>
-            <p className="text-sm text-muted-foreground">
-              {result.autoPossible > 0
-                ? `${Math.round((result.autoEarned / result.autoPossible) * 100)}% on the auto-graded questions.`
-                : 'Your response has been recorded.'}
+            <p className="text-sm text-muted-foreground">Score earned</p>
+            <p className="font-heading text-3xl font-semibold tracking-tight text-primary sm:text-4xl">
+              {result.percentage}%
             </p>
+            <div className="mt-4 grid w-full grid-cols-3 divide-x divide-border overflow-hidden rounded-[12px] border border-border bg-background text-left">
+              <ResultMetric
+                value={result.correctCount}
+                label="Correct"
+                className="text-primary"
+              />
+              <ResultMetric
+                value={result.incorrectCount}
+                label="Incorrect"
+                className="text-destructive"
+              />
+              <ResultMetric
+                value={result.manualGradingCount}
+                label="Manual grading"
+                className="text-[var(--color-amber)]"
+              />
+            </div>
             {result.needsGrading ? (
               <p className="mt-1 text-sm text-[var(--color-amber)]">
-                Some open-ended answers will be graded by hand — your final
-                score may go up.
+                {result.manualGradingCount} open-ended{' '}
+                {result.manualGradingCount === 1 ? 'response requires' : 'responses require'}{' '}
+                manual grading. Your score may change once reviewed.
               </p>
             ) : null}
           </div>
@@ -373,7 +394,27 @@ export default function TakeTestPage() {
           >
             Back to dashboard
           </Link>
-        </section>
+          </section>
+
+          <section className="flex flex-col gap-4">
+            <div className="flex flex-col gap-1 px-1">
+              <h2 className="font-heading text-lg font-semibold text-foreground">
+                Question review
+              </h2>
+              <p className="text-sm text-muted-foreground">
+                Review your submitted answers and the correct answers.
+              </p>
+            </div>
+
+            {orderedReviews.map((review, index) => (
+              <ResultQuestionCard
+                key={review.questionId}
+                review={review}
+                index={index}
+              />
+            ))}
+          </section>
+        </div>
       ) : null}
 
       <SiteFooter />
@@ -425,4 +466,27 @@ function SiteFooter() {
       </Link>
     </p>
   )
+}
+
+function ResultMetric({
+  value,
+  label,
+  className,
+}: {
+  value: number
+  label: string
+  className: string
+}) {
+  return (
+    <div className="flex min-w-0 flex-col gap-0.5 px-3 py-3 sm:px-4">
+      <span className={`font-heading text-xl font-semibold ${className}`}>{value}</span>
+      <span className="text-xs leading-tight text-muted-foreground">{label}</span>
+    </div>
+  )
+}
+
+function formatPoints(points: number): string {
+  return Number.isInteger(points)
+    ? String(points)
+    : points.toFixed(2).replace(/\.00$/, '').replace(/(\.\d)0$/, '$1')
 }
