@@ -13,11 +13,13 @@ import {
 export function PreviewDialog({
   open,
   title,
+  description,
   questions,
   onClose,
 }: {
   open: boolean
   title: string
+  description: string
   questions: Question[]
   onClose: () => void
 }) {
@@ -62,6 +64,9 @@ export function PreviewDialog({
             <h1 className="font-heading text-2xl font-semibold tracking-tight text-foreground text-balance">
               {title || 'Untitled test'}
             </h1>
+            {description.trim() ? (
+              <p className="text-sm text-muted-foreground text-pretty">{description}</p>
+            ) : null}
             <p className="text-sm text-muted-foreground">
               {questions.length}{' '}
               {questions.length === 1 ? 'question' : 'questions'} · {total}{' '}

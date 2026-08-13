@@ -41,6 +41,7 @@ import { verifyTurnstileToken } from '@/lib/turnstile'
 type TestRow = {
   id: string
   title: string
+  description: string | null
   code: string
   time_limit: string
   shuffle: boolean
@@ -116,6 +117,7 @@ function mapTest(row: TestRow, responses: ResponseRow[]): Test {
   return {
     id: row.id,
     title: row.title,
+    description: row.description ?? '',
     code: row.code,
     timeLimit: row.time_limit,
     shuffle: row.shuffle,
@@ -134,6 +136,7 @@ function mapTest(row: TestRow, responses: ResponseRow[]): Test {
 function toTestSnapshot(row: TestRow): TestSnapshot {
   return {
     title: row.title,
+    description: row.description ?? '',
     code: row.code,
     timeLimit: row.time_limit,
     shuffle: row.shuffle,
@@ -348,6 +351,7 @@ function mapDraft(row: DraftRow): TestDraft {
   return {
     id: row.id,
     title: typeof data.title === 'string' ? data.title : row.title ?? '',
+    description: typeof data.description === 'string' ? data.description : '',
     code: typeof data.code === 'string' ? data.code : '',
     timeLimit: typeof data.timeLimit === 'string' ? data.timeLimit : '15m',
     shuffle: data.shuffle ?? true,
@@ -366,6 +370,9 @@ function validateDraftData(input: DraftData): string | null {
   if (!input || typeof input !== 'object') return 'The draft data is invalid.'
   if (typeof input.title !== 'string' || input.title.length > 200) {
     return 'Draft title is too long.'
+  }
+  if (typeof input.description !== 'string' || input.description.length > 5000) {
+    return 'Draft description is too long.'
   }
   if (!Array.isArray(input.questions) || input.questions.length > 200) {
     return 'A draft can contain up to 200 questions.'
@@ -700,6 +707,7 @@ export async function getPublicTestByCode(
   return {
     id: row.id,
     title: row.title,
+    description: row.description ?? '',
     code: row.code,
     timeLimit: row.time_limit,
     shuffle: row.shuffle,
@@ -765,6 +773,7 @@ export async function createTest(
     .from('tests')
     .insert({
       title: input.title,
+      description: input.description,
       code,
       time_limit: input.timeLimit,
       shuffle: input.shuffle,
@@ -830,6 +839,7 @@ export async function updateTest(
     .from('tests')
     .update({
       title: input.title,
+      description: input.description,
       code,
       time_limit: input.timeLimit,
       shuffle: input.shuffle,
@@ -902,6 +912,7 @@ export async function duplicateTest(id: string): Promise<{ id: string } | null> 
     .from('tests')
     .insert({
       title: `${row.title} (copy)`,
+      description: row.description ?? '',
       code,
       time_limit: row.time_limit,
       shuffle: row.shuffle,

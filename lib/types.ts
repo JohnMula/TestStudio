@@ -361,6 +361,7 @@ export function toPublicQuestion(
 export type PublicTest = {
   id: string
   title: string
+  description: string
   code: string
   timeLimit: string
   shuffle: boolean
@@ -491,6 +492,7 @@ export function gradeQuestion(q: Question, answer: unknown): Grade {
 
 export type TestSnapshot = {
   title: string
+  description: string
   code: string
   timeLimit: string
   shuffle: boolean
@@ -516,6 +518,7 @@ export type Response = {
 export type Test = {
   id: string
   title: string
+  description: string
   code: string
   timeLimit: string
   shuffle: boolean
@@ -550,6 +553,7 @@ export function responsePossible(test: Test, r: Response): number {
 /* input accepted by the create-test server action */
 export type CreateTestInput = {
   title: string
+  description: string
   code?: string
   timeLimit: string
   shuffle: boolean
@@ -568,6 +572,7 @@ export type CreateTestInput = {
    editor can restore it without a second, lossy mapping. */
 export type DraftData = {
   title: string
+  description: string
   code: string
   timeLimit: string
   shuffle: boolean
@@ -616,6 +621,7 @@ export type AttemptDetail = TestAttempt & {
 
 export const LIMITS = {
   title: 200,
+  description: 5000,
   questionCount: 200,
   prompt: 5000,
   explanation: 5000,
@@ -640,6 +646,9 @@ export function validateCreateTestInput(input: CreateTestInput): string | null {
   if (!input.title?.trim()) return 'Title is required.'
   const titleErr = tooLong(input.title, LIMITS.title, 'Title')
   if (titleErr) return titleErr
+  if (typeof input.description !== 'string') return 'Description is invalid.'
+  const descriptionErr = tooLong(input.description, LIMITS.description, 'Description')
+  if (descriptionErr) return descriptionErr
 
   if (!Array.isArray(input.questions) || input.questions.length === 0) {
     return 'At least one question is required.'

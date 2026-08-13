@@ -226,6 +226,7 @@ export function loadDraft(): Draft | null {
     const questions = normalizeQuestions(draft.questions)
     return {
       ...draft,
+      description: typeof draft.description === 'string' ? draft.description : '',
       shuffleChoices: draft.shuffleChoices ?? true,
       questionType:
         draft.questionType ?? questions[questions.length - 1]?.type ?? 'multiple_choice',

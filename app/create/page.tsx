@@ -3,13 +3,15 @@
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Suspense, useCallback, useEffect, useRef, useState } from 'react'
-import { ArrowLeft, Eye, Library, Check, X, Plus, Calendar } from 'lucide-react'
+import { ArrowLeft, Eye, Library, Check, X, Plus, Calendar, Upload } from 'lucide-react'
 import { SiteHeader } from '@/components/site-header'
 import { TypePicker } from '@/components/type-picker'
 import { QuestionEditor } from '@/components/question-editor'
 import { BankDialog } from '@/components/bank-dialog'
 import { PreviewDialog } from '@/components/preview-dialog'
 import { AutosizeTextarea } from '@/components/autosize-textarea'
+import { ImportTestDialog } from '@/components/import-test-dialog'
+import type { ImportedTest } from '@/lib/test-import'
 import {
   createTest,
   updateTest,
@@ -26,6 +28,7 @@ import {
   getTestForEditing,
   type Question,
   type QType,
+  type DraftData,
   type Test,
 } from '@/lib/store'
 
@@ -50,6 +53,7 @@ function CreateEditor() {
   const isEditing = Boolean(editId)
 
   const [title, setTitle] = useState('')
+  const [description, setDescription] = useState('')
   const [timeLimit, setTimeLimit] = useState<TimeOpt>('15m')
   const [shuffle, setShuffle] = useState(true)
   const [shuffleChoices, setShuffleChoices] = useState(true)
@@ -62,6 +66,7 @@ function CreateEditor() {
   const [closesAt, setClosesAt] = useState('')
 
   const [previewOpen, setPreviewOpen] = useState(false)
+  const [importOpen, setImportOpen] = useState(false)
   const [bankOpen, setBankOpen] = useState(false)
   const [bankTarget, setBankTarget] = useState<Question | null>(null)
 
@@ -97,6 +102,7 @@ function CreateEditor() {
           }
 
           setTitle(test.title)
+          setDescription(test.description)
           setCustomCode(test.code)
           setTimeLimit(
             TIME_OPTIONS.includes(test.timeLimit as TimeOpt)
@@ -131,6 +137,7 @@ function CreateEditor() {
           }
           draftIdRef.current = draft.id
           setTitle(draft.title)
+          setDescription(draft.description)
           setCustomCode(draft.code)
           setTimeLimit((draft.timeLimit as TimeOpt) ?? '15m')
           setShuffle(draft.shuffle)
@@ -145,6 +152,7 @@ function CreateEditor() {
           saveDraft({
             id: draft.id,
             title: draft.title,
+            description: draft.description,
             code: draft.code,
             timeLimit: draft.timeLimit,
             shuffle: draft.shuffle,
@@ -167,6 +175,7 @@ function CreateEditor() {
     if (d) {
       draftIdRef.current = d.id ?? null
       setTitle(d.title)
+      setDescription(d.description ?? '')
       setCustomCode(d.code ?? '')
       setTimeLimit((d.timeLimit as TimeOpt) ?? '15m')
       setShuffle(d.shuffle)
@@ -200,6 +209,7 @@ function CreateEditor() {
     const t = setTimeout(() => {
       const draft = {
         title,
+        description,
         code: customCode,
         timeLimit,
         shuffle,
@@ -256,6 +266,7 @@ function CreateEditor() {
   }, [
     loaded,
     title,
+    description,
     customCode,
     timeLimit,
     shuffle,
@@ -318,6 +329,58 @@ function CreateEditor() {
     setBankTarget(q)
   }
 
+  async function importTest(imported: ImportedTest): Promise<string | null> {
+    const questionType =
+      imported.questions[imported.questions.length - 1]?.type ?? 'multiple_choice'
+    const draft: DraftData = {
+      title: imported.title,
+      description: imported.description,
+      code: '',
+      timeLimit,
+      shuffle,
+      shuffleChoices,
+      singleAttempt,
+      questionType,
+      questions: imported.questions,
+      opensAt: null,
+      closesAt: null,
+    }
+    const newDraftId = typeof crypto !== 'undefined' ? crypto.randomUUID() : null
+
+    try {
+      const result = await saveServerDraft(newDraftId, draft)
+      if (result.ok) {
+        saveDraft({ ...draft, id: result.draft.id })
+        setImportOpen(false)
+        router.push(`/create?draft=${encodeURIComponent(result.draft.id)}`)
+        return null
+      }
+      if (!result.needsSignIn) return result.error
+    } catch {
+      // Anonymous creators can still use the browser-local draft flow.
+    }
+
+    draftIdRef.current = newDraftId
+    discardDraftRef.current = false
+    saveDraft({ ...draft, ...(newDraftId ? { id: newDraftId } : {}) })
+    setTitle(draft.title)
+    setDescription(draft.description)
+    setCustomCode(draft.code)
+    setTimeLimit(draft.timeLimit as TimeOpt)
+    setShuffle(draft.shuffle)
+    setShuffleChoices(draft.shuffleChoices)
+    setSingleAttempt(draft.singleAttempt)
+    setQuestionType(draft.questionType)
+    setQuestions(draft.questions)
+    setOpensAt('')
+    setClosesAt('')
+    setSavedAt(Date.now())
+    setAutosaveState('local')
+    setAutosaveError(null)
+    setImportOpen(false)
+    return null
+  }
+
   /* ---------- publish ---------- */
   const canPublish =
     title.trim().length > 0 && questions.length > 0 && !publishing
@@ -329,6 +392,7 @@ function CreateEditor() {
     setPublishError(null)
     const input = {
       title: title.trim(),
+      description: description.trim(),
       code: customCode.trim() ? customCode.trim() : undefined,
       timeLimit,
       shuffle,
@@ -427,7 +491,8 @@ function CreateEditor() {
           </div>
         ) : (
           <>
-        <div className="mb-8 flex flex-col gap-1">
+        <div className="mb-8 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="flex flex-col gap-1">
           <h1 className="font-heading text-xl font-semibold tracking-tight text-foreground sm:text-2xl">
             {isEditing ? 'Edit test' : 'Create a test'}
           </h1>
@@ -435,6 +500,17 @@ function CreateEditor() {
             Mix any question types you like. Publish, then share the code — no
             account needed to take it.
           </p>
+          </div>
+          {!isEditing ? (
+            <button
+              type="button"
+              onClick={() => setImportOpen(true)}
+              className="flex w-fit shrink-0 items-center gap-2 rounded-[10px] border border-border bg-card px-3 py-2 text-sm font-medium text-foreground shadow-soft transition-colors hover:bg-secondary"
+            >
+              <Upload className="size-4 text-primary" aria-hidden />
+              Upload JSON
+            </button>
+          ) : null}
         </div>
 
         {/* details */}
@@ -445,6 +521,18 @@ function CreateEditor() {
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder="e.g. Cell Biology — Unit 4"
+              className={fieldCls}
+            />
+          </label>
+
+          <label className="flex flex-col gap-2">
+            <span className="text-sm font-medium text-foreground">
+              Test description <span className="text-muted-foreground">(optional)</span>
+            </span>
+            <AutosizeTextarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="A short introduction or instruction for test-takers"
               className={fieldCls}
             />
           </label>
@@ -636,6 +724,7 @@ function CreateEditor() {
       <PreviewDialog
         open={previewOpen}
         title={title}
+        description={description}
         questions={questions}
         onClose={() => setPreviewOpen(false)}
       />
@@ -654,6 +743,11 @@ function CreateEditor() {
           saveToBank(subject, q)
           setBankTarget(null)
         }}
+      />
+      <ImportTestDialog
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        onImport={importTest}
       />
     </div>
   )
