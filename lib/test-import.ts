@@ -385,7 +385,7 @@ export function parseTestStudioImport(text: string): ImportResult {
 // the combined prompt is copied to the clipboard.
 const AI_IMPORT_PROMPT_TEMPLATE = `Create a test for my TestStudio application.
 
-Return ONLY one valid JSON object a JSON file so I can download it that follows the TestStudio import format below. Do not return Markdown, code fences, comments, trailing commas, or explanations before or after the JSON.
+Return ONLY one valid JSON file so I can download it that follows the TestStudio import format below. Do not return Markdown, code fences, comments, trailing commas, or explanations before or after the JSON.
 
 Use this top-level structure exactly:
 {
