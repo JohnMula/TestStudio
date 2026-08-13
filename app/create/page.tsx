@@ -11,6 +11,7 @@ import { BankDialog } from '@/components/bank-dialog'
 import { PreviewDialog } from '@/components/preview-dialog'
 import { AutosizeTextarea } from '@/components/autosize-textarea'
 import { ImportTestDialog } from '@/components/import-test-dialog'
+import { ScrollNavButtons } from '@/components/scroll-nav-buttons'
 import type { ImportedTest } from '@/lib/test-import'
 import {
   createTest,
@@ -749,6 +750,7 @@ function CreateEditor() {
         onClose={() => setImportOpen(false)}
         onImport={importTest}
       />
+      <ScrollNavButtons />
     </div>
   )
 }
