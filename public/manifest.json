@@ -1,0 +1,17 @@
+{
+  "name": "TestStudio",
+  "short_name": "TestStudio",
+  "description": "Create a test, share a code, and collect responses.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f7f3ec",
+  "theme_color": "#f7f3ec",
+  "icons": [
+    {
+      "src": "/logo/t.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}

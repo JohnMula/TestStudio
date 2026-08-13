@@ -26,6 +26,33 @@ export const metadata: Metadata = {
   description:
     'Free, unlimited tests. Build a test, publish it, and share it as a code or link. No account needed to take one.',
   generator: 'v0.app',
+  manifest: '/manifest.json',
+  icons: {
+    icon: '/logo/t.png',
+    shortcut: '/logo/t.png',
+    apple: '/logo/t.png',
+  },
+  openGraph: {
+    title: 'TestStudio',
+    description:
+      'Free, unlimited tests. Build a test, publish it, and share it as a code or link. No account needed to take one.',
+    type: 'website',
+    images: [
+      {
+        url: '/logo/t.png',
+        width: 512,
+        height: 512,
+        alt: 'TestStudio logo',
+      },
+    ],
+  },
+  twitter: {
+    card: 'summary',
+    title: 'TestStudio',
+    description:
+      'Free, unlimited tests. Build a test, publish it, and share it as a code or link. No account needed to take one.',
+    images: ['/logo/t.png'],
+  },
 }
 
 export const viewport: Viewport = {

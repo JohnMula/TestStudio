@@ -17,6 +17,7 @@ import {
   Users,
 } from 'lucide-react'
 import { SiteHeader } from '@/components/site-header'
+import { DashboardSkeleton } from '@/components/skeletons/dashboard-skeleton'
 import {
   clearDraft,
   deleteServerDraft,
@@ -24,6 +25,9 @@ import {
   saveDraft,
   saveServerDraft,
   typeMeta,
+  type Test,
+  type TestAttempt,
+  type TestDraft,
   useDrafts,
   useTakenTests,
   useTests,
@@ -49,9 +53,9 @@ function formatSavedAt(value: number): string {
 }
 
 export default function DashboardPage() {
-  const tests = useTests()
-  const attempts = useTakenTests()
-  const drafts = useDrafts()
+  const { tests, isLoading: testsLoading } = useTests()
+  const { attempts, isLoading: attemptsLoading } = useTakenTests()
+  const { drafts, isLoading: draftsLoading } = useDrafts()
   const router = useRouter()
   const [joinCode, setJoinCode] = useState('')
   const [tab, setTab] = useState<Tab>('tests')
@@ -99,6 +103,10 @@ export default function DashboardPage() {
     } finally {
       setDeletingDraft(false)
     }
+  }
+
+  if (testsLoading || attemptsLoading || draftsLoading) {
+    return <DashboardSkeleton />
   }
 
   return (
@@ -173,9 +181,9 @@ export default function DashboardPage() {
         </div>
 
         {tab === 'tests' ? <YourTests tests={tests} /> : null}
-        {tab === 'taken' ? <TakenTests /> : null}
+        {tab === 'taken' ? <TakenTests attempts={attempts} /> : null}
         {tab === 'drafts' ? (
-          <Drafts onRequestDelete={(draftId) => {
+          <Drafts drafts={drafts} onRequestDelete={(draftId) => {
             setDraftDeleteError(null)
             setDraftToDelete(draftId)
           }} />
@@ -242,7 +250,7 @@ function TabButton({ active, children, onClick }: { active: boolean; children: R
   )
 }
 
-function YourTests({ tests }: { tests: ReturnType<typeof useTests> }) {
+function YourTests({ tests }: { tests: Test[] }) {
   if (tests.length === 0) {
     return <EmptyState icon={Plus} message="You haven't created any tests yet." action="Create your first test" href="/create" />
   }
@@ -283,8 +291,7 @@ function YourTests({ tests }: { tests: ReturnType<typeof useTests> }) {
   )
 }
 
-function TakenTests() {
-  const attempts = useTakenTests()
+function TakenTests({ attempts }: { attempts: TestAttempt[] }) {
   if (attempts.length === 0) {
     return <EmptyState icon={Clock3} message="You haven't taken any tests yet." />
   }
@@ -319,8 +326,13 @@ function TakenTests() {
   )
 }
 
-function Drafts({ onRequestDelete }: { onRequestDelete: (id: string) => void }) {
-  const drafts = useDrafts()
+function Drafts({
+  drafts,
+  onRequestDelete,
+}: {
+  drafts: TestDraft[]
+  onRequestDelete: (id: string) => void
+}) {
   if (drafts.length === 0) {
     return <EmptyState icon={FilePenLine} message="No drafts yet." detail="Start creating a test and we'll save your progress automatically." action="Create a test" href="/create" />
   }

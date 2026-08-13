@@ -81,7 +81,13 @@ export function TurnstileWidget({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [siteKey])
 
-  if (!siteKey) return null
+  if (!siteKey) {
+    return process.env.NODE_ENV === 'production' ? (
+      <p className="text-xs text-destructive">
+        Verification is unavailable. Please contact the test owner.
+      </p>
+    ) : null
+  }
 
   return (
     <div className="flex flex-col gap-1.5">

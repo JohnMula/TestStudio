@@ -11,6 +11,10 @@ import { BankDialog } from '@/components/bank-dialog'
 import { PreviewDialog } from '@/components/preview-dialog'
 import { AutosizeTextarea } from '@/components/autosize-textarea'
 import { ImportTestDialog } from '@/components/import-test-dialog'
+import {
+  CreateBodySkeleton,
+  CreateSkeleton,
+} from '@/components/skeletons/create-skeleton'
 import { ScrollNavButtons } from '@/components/scroll-nav-buttons'
 import type { ImportedTest } from '@/lib/test-import'
 import {
@@ -474,12 +478,7 @@ function CreateEditor() {
 
       <main className="mx-auto max-w-3xl px-4 py-8 sm:px-6 sm:py-10">
         {!loaded ? (
-          <div className="flex flex-col items-center gap-3 rounded-[16px] border border-border bg-card px-6 py-20 text-center shadow-soft">
-            <span className="size-5 animate-spin rounded-full border-2 border-secondary border-t-primary" />
-            <p className="text-sm text-muted-foreground">
-              {isEditing ? 'Loading test…' : 'Loading editor…'}
-            </p>
-          </div>
+          <CreateBodySkeleton />
         ) : loadError ? (
           <div className="flex flex-col items-center gap-4 rounded-[16px] border border-border bg-card px-6 py-20 text-center shadow-soft">
             <p className="text-sm text-destructive">{loadError}</p>
@@ -764,16 +763,7 @@ export default function CreatePage() {
 }
 
 function EditorLoadingFallback() {
-  return (
-    <div className="min-h-screen bg-background">
-      <main className="mx-auto max-w-3xl px-4 py-8 sm:px-6 sm:py-10">
-        <div className="flex flex-col items-center gap-3 rounded-[16px] border border-border bg-card px-6 py-20 text-center shadow-soft">
-          <span className="size-5 animate-spin rounded-full border-2 border-secondary border-t-primary" />
-          <p className="text-sm text-muted-foreground">Loading editor…</p>
-        </div>
-      </main>
-    </div>
-  )
+  return <CreateSkeleton />
 }
 
 /* ---------- inline helpers ---------- */

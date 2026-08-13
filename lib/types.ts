@@ -622,6 +622,10 @@ export type AttemptDetail = TestAttempt & {
 export const LIMITS = {
   title: 200,
   description: 5000,
+  code: 64,
+  identifier: 200,
+  testBytes: 1_000_000,
+  questionPoints: 10_000,
   questionCount: 200,
   prompt: 5000,
   explanation: 5000,
@@ -634,6 +638,9 @@ export const LIMITS = {
   enumAnswerCount: 100,
   answerText: 500,
   alternateCount: 50,
+  takerName: 120,
+  responseText: 5000,
+  responseBytes: 250_000,
 } as const
 
 function tooLong(value: string, max: number, label: string): string | null {
@@ -642,25 +649,96 @@ function tooLong(value: string, max: number, label: string): string | null {
 
 /* Returns an error message, or null if the input is within limits.
    Called at the top of createTest(), before anything touches the DB. */
-export function validateCreateTestInput(input: CreateTestInput): string | null {
-  if (!input.title?.trim()) return 'Title is required.'
-  const titleErr = tooLong(input.title, LIMITS.title, 'Title')
+export function validateCreateTestInput(input: unknown): string | null {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    return 'The test data is invalid.'
+  }
+  try {
+    if (new TextEncoder().encode(JSON.stringify(input)).length > LIMITS.testBytes) {
+      return 'This test is too large to save.'
+    }
+  } catch {
+    return 'The test data is invalid.'
+  }
+  const value = input as CreateTestInput
+  if (typeof value.title !== 'string' || !value.title.trim()) return 'Title is required.'
+  const titleErr = tooLong(value.title, LIMITS.title, 'Title')
   if (titleErr) return titleErr
-  if (typeof input.description !== 'string') return 'Description is invalid.'
-  const descriptionErr = tooLong(input.description, LIMITS.description, 'Description')
+  if (typeof value.description !== 'string') return 'Description is invalid.'
+  const descriptionErr = tooLong(value.description, LIMITS.description, 'Description')
   if (descriptionErr) return descriptionErr
+  if (value.code !== undefined) {
+    if (
+      typeof value.code !== 'string' ||
+      value.code.length > LIMITS.code ||
+      !/^[A-Za-z0-9-]+$/.test(value.code.trim())
+    ) {
+      return 'Share codes may only use letters, numbers, and hyphens (max 64 characters).'
+    }
+  }
+  if (!['Off', '15m', '30m', '60m'].includes(value.timeLimit)) {
+    return 'The time limit is invalid.'
+  }
+  if (
+    typeof value.shuffle !== 'boolean' ||
+    typeof value.shuffleChoices !== 'boolean' ||
+    typeof value.singleAttempt !== 'boolean'
+  ) {
+    return 'The test settings are invalid.'
+  }
+  for (const [label, date] of [
+    ['Opening time', value.opensAt],
+    ['Closing time', value.closesAt],
+  ] as const) {
+    if (
+      date !== undefined &&
+      date !== null &&
+      (!Number.isFinite(date) || date < 0 || date > 8.64e15)
+    ) {
+      return `${label} is invalid.`
+    }
+  }
+  if (
+    value.opensAt !== null &&
+    value.opensAt !== undefined &&
+    value.closesAt !== null &&
+    value.closesAt !== undefined &&
+    value.closesAt < value.opensAt
+  ) {
+    return 'Closing time must be after opening time.'
+  }
 
-  if (!Array.isArray(input.questions) || input.questions.length === 0) {
+  if (!Array.isArray(value.questions) || value.questions.length === 0) {
     return 'At least one question is required.'
   }
-  if (input.questions.length > LIMITS.questionCount) {
+  if (value.questions.length > LIMITS.questionCount) {
     return `Too many questions (max ${LIMITS.questionCount}).`
   }
 
-  for (const [i, q] of input.questions.entries()) {
+  const questionIds = new Set<string>()
+  for (const [i, q] of value.questions.entries()) {
     const n = i + 1
-    const promptErr = tooLong(q.prompt ?? '', LIMITS.prompt, `Question ${n} prompt`)
+    if (
+      !q ||
+      typeof q !== 'object' ||
+      typeof q.id !== 'string' ||
+      !q.id ||
+      q.id.length > LIMITS.identifier ||
+      !QUESTION_TYPES.some((item) => item.type === q.type) ||
+      typeof q.prompt !== 'string' ||
+      !Number.isFinite(q.points) ||
+      q.points <= 0 ||
+      q.points > LIMITS.questionPoints
+    ) {
+      return `Question ${n} is invalid.`
+    }
+    if (questionIds.has(q.id)) return `Question ${n} has a duplicate identifier.`
+    questionIds.add(q.id)
+    const promptErr = tooLong(q.prompt, LIMITS.prompt, `Question ${n} prompt`)
     if (promptErr) return promptErr
+    if (q.explanation !== undefined && typeof q.explanation !== 'string') {
+      return `Question ${n} explanation is invalid.`
+    }
     if (q.explanation) {
       const expErr = tooLong(
         q.explanation,
@@ -672,14 +750,30 @@ export function validateCreateTestInput(input: CreateTestInput): string | null {
 
     switch (q.type) {
       case 'multiple_choice': {
-        if (q.options.length > LIMITS.optionCount) {
+        if (!Array.isArray(q.options) || !Array.isArray(q.correct) || typeof q.multiple !== 'boolean') {
+          return `Question ${n} is invalid.`
+        }
+        if (q.options.length > LIMITS.optionCount || q.correct.length > q.options.length) {
           return `Question ${n}: too many options (max ${LIMITS.optionCount}).`
         }
-        const optionIds = new Set(q.options.map((option) => option.id))
-        if (q.options.some((option) => !option.id) || optionIds.size !== q.options.length) {
+        const optionIds = new Set(q.options.map((option) => option?.id))
+        if (
+          q.options.some(
+            (option) =>
+              !option ||
+              typeof option.id !== 'string' ||
+              option.id.length > LIMITS.identifier ||
+              typeof option.text !== 'string' ||
+              !option.id,
+          ) ||
+          optionIds.size !== q.options.length
+        ) {
           return `Question ${n}: each option needs a unique ID.`
         }
-        if (q.correct.some((id) => !optionIds.has(id))) {
+        if (
+          q.correct.some((id) => typeof id !== 'string' || !optionIds.has(id)) ||
+          new Set(q.correct).size !== q.correct.length
+        ) {
           return `Question ${n}: a correct answer does not match an option.`
         }
         for (const opt of q.options) {
@@ -703,22 +797,37 @@ export function validateCreateTestInput(input: CreateTestInput): string | null {
         break
       }
       case 'identification': {
+        if (typeof q.answer !== 'string' || !Array.isArray(q.alternates)) {
+          return `Question ${n} is invalid.`
+        }
         const e1 = tooLong(q.answer ?? '', LIMITS.answerText, `Question ${n} answer`)
         if (e1) return e1
         if (q.alternates.length > LIMITS.alternateCount) {
           return `Question ${n}: too many alternates (max ${LIMITS.alternateCount}).`
         }
         for (const alt of q.alternates) {
+          if (typeof alt !== 'string') return `Question ${n} alternate is invalid.`
           const e = tooLong(alt, LIMITS.answerText, `Question ${n} alternate`)
           if (e) return e
         }
         break
       }
       case 'matching': {
+        if (!Array.isArray(q.pairs)) return `Question ${n} is invalid.`
         if (q.pairs.length > LIMITS.pairCount) {
           return `Question ${n}: too many pairs (max ${LIMITS.pairCount}).`
         }
         for (const p of q.pairs) {
+          if (
+            !p ||
+            typeof p.id !== 'string' ||
+            !p.id ||
+            p.id.length > LIMITS.identifier ||
+            typeof p.left !== 'string' ||
+            typeof p.right !== 'string'
+          ) {
+            return `Question ${n} contains an invalid pair.`
+          }
           const e1 = tooLong(p.left, LIMITS.pairText, `Question ${n} pair`)
           if (e1) return e1
           const e2 = tooLong(p.right, LIMITS.pairText, `Question ${n} pair`)
@@ -727,14 +836,17 @@ export function validateCreateTestInput(input: CreateTestInput): string | null {
         break
       }
       case 'fill_blank': {
+        if (!Array.isArray(q.blanks)) return `Question ${n} is invalid.`
         if (q.blanks.length > LIMITS.blankCount) {
           return `Question ${n}: too many blanks (max ${LIMITS.blankCount}).`
         }
         for (const b of q.blanks) {
+          if (!b || !Array.isArray(b.answers)) return `Question ${n} contains an invalid blank.`
           if (b.answers.length > LIMITS.blankAnswerCount) {
             return `Question ${n}: too many accepted answers for a blank (max ${LIMITS.blankAnswerCount}).`
           }
           for (const a of b.answers) {
+            if (typeof a !== 'string') return `Question ${n} blank answer is invalid.`
             const e = tooLong(a, LIMITS.answerText, `Question ${n} blank answer`)
             if (e) return e
           }
@@ -742,16 +854,21 @@ export function validateCreateTestInput(input: CreateTestInput): string | null {
         break
       }
       case 'enumeration': {
+        if (!Array.isArray(q.answers) || typeof q.requireOrder !== 'boolean') {
+          return `Question ${n} is invalid.`
+        }
         if (q.answers.length > LIMITS.enumAnswerCount) {
           return `Question ${n}: too many answers (max ${LIMITS.enumAnswerCount}).`
         }
         for (const a of q.answers) {
+          if (typeof a !== 'string') return `Question ${n} answer is invalid.`
           const e = tooLong(a, LIMITS.answerText, `Question ${n} answer`)
           if (e) return e
         }
         break
       }
       case 'true_false':
+        if (typeof q.answer !== 'boolean') return `Question ${n} is invalid.`
       case 'essay':
         break
     }

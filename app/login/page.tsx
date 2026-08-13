@@ -6,6 +6,7 @@ import { Suspense, useEffect, useState } from 'react'
 import type { Provider, SupabaseClient } from '@supabase/supabase-js'
 import { ArrowLeft, ShieldCheck } from 'lucide-react'
 import { SiteHeader } from '@/components/site-header'
+import { LoginSkeleton } from '@/components/skeletons/login-skeleton'
 import { createClient } from '@/lib/supabase/client'
 
 type AuthProvider = Extract<Provider, 'google' | 'facebook'>
@@ -179,7 +180,7 @@ function LoginForm() {
 
 export default function LoginPage() {
   return (
-    <Suspense fallback={null}>
+    <Suspense fallback={<LoginSkeleton />}>
       <LoginForm />
     </Suspense>
   )

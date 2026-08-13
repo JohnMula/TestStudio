@@ -17,6 +17,9 @@ import {
   Calendar,
 } from 'lucide-react'
 import { SiteHeader } from '@/components/site-header'
+import {
+  TestDetailBodySkeleton,
+} from '@/components/skeletons/test-detail-skeleton'
 import { TicketCard } from '@/components/ticket-card'
 import {
   useTest,
@@ -126,7 +129,7 @@ function TestDetail() {
   const params = useParams<{ id: string }>()
   const search = useSearchParams()
   const router = useRouter()
-  const test = useTest(params.id)
+  const { test, isLoading } = useTest(params.id)
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'error'>(
     'idle',
   )
@@ -151,6 +154,10 @@ function TestDetail() {
 
   const justCreated = search.get('created') === '1'
   const justUpdated = search.get('updated') === '1'
+
+  if (isLoading) {
+    return <TestDetailBodySkeleton />
+  }
 
   if (!test) {
     return (
@@ -480,9 +487,28 @@ function ResponseRow({
 }) {
   const earned = responseEarned(test, response)
   const possible = responsePossible(test, response)
+  const [scoreInputs, setScoreInputs] = useState<Record<string, string>>({})
+  const [savingQuestionId, setSavingQuestionId] = useState<string | null>(null)
+  const [gradingError, setGradingError] = useState<string | null>(null)
   const essays = (response.testSnapshot?.questions ?? test.questions).filter(
     (q) => q.type === 'essay',
   )
+
+  async function saveScore(questionId: string, maxPoints: number) {
+    const typed = scoreInputs[questionId]
+    if (typed === undefined) return
+    const points = Math.max(0, Math.min(maxPoints, Number(typed) || 0))
+    setScoreInputs((current) => ({ ...current, [questionId]: String(points) }))
+    setSavingQuestionId(questionId)
+    setGradingError(null)
+    try {
+      await gradeEssay(test.id, response.id, questionId, points)
+    } catch {
+      setGradingError('Unable to save this score. Please try again.')
+    } finally {
+      setSavingQuestionId(null)
+    }
+  }
 
   return (
     <li className="border-t border-border">
@@ -523,9 +549,18 @@ function ResponseRow({
 
       {expanded && hasEssays ? (
         <div className="flex flex-col gap-4 bg-secondary/40 px-4 py-4 sm:px-6">
+          {gradingError ? (
+            <p
+              role="alert"
+              className="rounded-[10px] border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+            >
+              {gradingError}
+            </p>
+          ) : null}
           {essays.map((q) => {
             const text = response.answers[q.id]
             const awarded = response.manualScores[q.id]
+            const scoreInput = scoreInputs[q.id] ?? (awarded === undefined ? '' : String(awarded))
             return (
               <div key={q.id} className="flex flex-col gap-2">
                 <span className="text-sm font-medium text-foreground">
@@ -543,24 +578,26 @@ function ResponseRow({
                       type="number"
                       min={0}
                       max={q.points}
-                      value={awarded ?? ''}
+                      value={scoreInput}
                       placeholder="0"
-                      onChange={(e) =>
-                        gradeEssay(
-                          test.id,
-                          response.id,
-                          q.id,
-                          Math.max(
-                            0,
-                            Math.min(q.points, Number(e.target.value) || 0),
-                          ),
-                        )
+                      disabled={savingQuestionId === q.id}
+                      onChange={(event) =>
+                        setScoreInputs((current) => ({
+                          ...current,
+                          [q.id]: event.target.value,
+                        }))
                       }
-                      className="w-16 rounded-[8px] border border-border bg-background px-2 py-1 font-mono text-sm text-foreground outline-none focus:border-primary"
+                      onBlur={() => void saveScore(q.id, q.points)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') event.currentTarget.blur()
+                      }}
+                      className="w-16 rounded-[8px] border border-border bg-background px-2 py-1 font-mono text-sm text-foreground outline-none focus:border-primary disabled:cursor-wait disabled:opacity-60"
                     />
                     / {q.points} pts
                   </label>
-                  {awarded !== undefined ? (
+                  {savingQuestionId === q.id ? (
+                    <span className="text-xs text-muted-foreground">savingâ€¦</span>
+                  ) : awarded !== undefined ? (
                     <span className="flex items-center gap-1 text-xs text-primary">
                       <Check className="size-3.5" aria-hidden />
                       graded
@@ -591,7 +628,7 @@ export default function TestDetailPage() {
           </Link>
         }
       />
-      <Suspense fallback={null}>
+      <Suspense fallback={<TestDetailBodySkeleton />}>
         <TestDetail />
       </Suspense>
     </div>

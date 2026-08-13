@@ -49,24 +49,24 @@ export type { UpdateTestResult } from '@/lib/actions'
    SWR handles client-side caching and revalidation.
    ============================================================ */
 
-export function useTests(): Test[] {
-  const { data } = useSWR('tests', () => listTests())
-  return data ?? []
+export function useTests(): { tests: Test[]; isLoading: boolean } {
+  const { data, isLoading } = useSWR('tests', () => listTests())
+  return { tests: data ?? [], isLoading }
 }
 
-export function useTest(id: string): Test | undefined {
-  const { data } = useSWR(id ? ['test', id] : null, () => getTest(id))
-  return data ?? undefined
+export function useTest(id: string): { test: Test | undefined; isLoading: boolean } {
+  const { data, isLoading } = useSWR(id ? ['test', id] : null, () => getTest(id))
+  return { test: data ?? undefined, isLoading }
 }
 
-export function useDrafts(): TestDraft[] {
-  const { data } = useSWR('drafts', () => listDrafts())
-  return data ?? []
+export function useDrafts(): { drafts: TestDraft[]; isLoading: boolean } {
+  const { data, isLoading } = useSWR('drafts', () => listDrafts())
+  return { drafts: data ?? [], isLoading }
 }
 
-export function useTakenTests(): TestAttempt[] {
-  const { data } = useSWR('taken-tests', () => listTakenTests())
-  return data ?? []
+export function useTakenTests(): { attempts: TestAttempt[]; isLoading: boolean } {
+  const { data, isLoading } = useSWR('taken-tests', () => listTakenTests())
+  return { attempts: data ?? [], isLoading }
 }
 
 export async function getTestForEditing(id: string): Promise<Test | null> {

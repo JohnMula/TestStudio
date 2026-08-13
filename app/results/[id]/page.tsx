@@ -3,9 +3,10 @@
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import useSWR from 'swr'
-import { ArrowLeft, Clock, Loader2, RotateCcw, Trophy } from 'lucide-react'
+import { ArrowLeft, Clock, RotateCcw, Trophy } from 'lucide-react'
 import { ResultQuestionCard } from '@/components/result-question-card'
 import { SiteHeader } from '@/components/site-header'
+import { ResultsBodySkeleton } from '@/components/skeletons/results-skeleton'
 import { getAttempt } from '@/lib/store'
 
 function formatPoints(points: number): string {
@@ -34,10 +35,7 @@ export default function AttemptResultPage() {
       />
       <main className="mx-auto max-w-2xl px-4 py-8 sm:px-6 sm:py-12">
         {isLoading ? (
-          <div className="flex flex-col items-center gap-3 py-16 text-muted-foreground">
-            <Loader2 className="size-6 animate-spin" aria-hidden />
-            <p className="text-sm">Loading result…</p>
-          </div>
+          <ResultsBodySkeleton />
         ) : !attempt ? (
           <div className="flex flex-col items-center gap-4 rounded-[16px] border border-border bg-card px-6 py-20 text-center shadow-soft">
             <h1 className="font-heading text-xl font-semibold text-foreground">Result unavailable</h1>

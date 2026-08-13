@@ -6,6 +6,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import useSWR from 'swr'
 import { ArrowRight, Clock, Loader2, Lock, Trophy } from 'lucide-react'
 import { SiteHeader } from '@/components/site-header'
+import { TakeTestBodySkeleton } from '@/components/skeletons/take-test-skeleton'
 import { QuestionTaker } from '@/components/question-taker'
 import { ResultQuestionCard } from '@/components/result-question-card'
 import { TurnstileWidget } from '@/components/turnstile-widget'
@@ -41,7 +42,9 @@ export default function TakeTestPage() {
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [captchaToken, setCaptchaToken] = useState('')
-  const turnstileConfigured = Boolean(process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY)
+  const turnstileConfigured =
+    process.env.NODE_ENV === 'production' ||
+    Boolean(process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY)
   const deviceId = useMemo(() => getDeviceId(), [])
 
   const order = useMemo(() => {
@@ -123,7 +126,7 @@ export default function TakeTestPage() {
   }
 
   if (isLoading) {
-    return <Shell code={code.toUpperCase()}><div className="flex flex-col items-center gap-3 py-16 text-muted-foreground"><Loader2 className="size-6 animate-spin" aria-hidden /><p className="text-sm">Loading test…</p></div></Shell>
+    return <Shell code={code.toUpperCase()}><TakeTestBodySkeleton /></Shell>
   }
   if (!test) {
     return <Shell code={code.toUpperCase()}><div className="flex flex-col items-center gap-4 py-12 text-center"><h1 className="font-heading text-xl font-semibold text-foreground">No test found for <span className="font-mono">{code.toUpperCase()}</span></h1><p className="text-sm text-muted-foreground">Double-check the code and try again.</p><Link href="/dashboard" className="rounded-[12px] bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground shadow-soft transition-opacity hover:opacity-90">Back to dashboard</Link></div></Shell>

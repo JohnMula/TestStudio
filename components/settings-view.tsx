@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import { Check, Info } from 'lucide-react'
+import { SettingsBodySkeleton } from '@/components/skeletons/settings-skeleton'
 import { loadSettings, saveSettings, type AppSettings } from '@/lib/store'
 
 /* ---------- small primitives ---------- */
@@ -159,6 +160,7 @@ export function SettingsView() {
   const [singleAttempt, setSingleAttempt] = useState(false)
   const [includeTimestamps, setIncludeTimestamps] = useState(true)
   const [saved, setSaved] = useState(false)
+  const [loaded, setLoaded] = useState(false)
 
   // Load whatever's already saved on this browser, same pattern the
   // create-test draft loader uses.
@@ -169,6 +171,7 @@ export function SettingsView() {
     setShuffleChoices(s.defaultShuffleChoices)
     setSingleAttempt(s.defaultSingleAttempt)
     setIncludeTimestamps(s.exportIncludeTimestamps)
+    setLoaded(true)
   }, [])
 
   function handleSave() {
@@ -183,6 +186,8 @@ export function SettingsView() {
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
   }
+
+  if (!loaded) return <SettingsBodySkeleton />
 
   return (
     <div className="flex flex-col gap-6">

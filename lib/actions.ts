@@ -26,9 +26,14 @@ import {
   rateLimitCreateTest,
   rateLimitSubmitResponse,
   rateLimitCodeLookup,
+  rateLimitDraftWrite,
+  rateLimitGradeEssay,
+  rateLimitSubmissionStatus,
+  rateLimitTestWrite,
   getClientIp,
 } from '@/lib/rate-limit'
 import { verifyTurnstileToken } from '@/lib/turnstile'
+import { validateResponseInput } from '@/lib/response-input'
 
 /* ============================================================
    Row <-> domain mapping
@@ -85,6 +90,18 @@ type PublicAttemptTestRow = {
 
 function ms(value: string | null): number | null {
   return value ? new Date(value).getTime() : null
+}
+
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+const PUBLIC_CODE_PATTERN = /^[A-Za-z0-9-]{1,64}$/
+
+function isUuid(value: unknown): value is string {
+  return typeof value === 'string' && UUID_PATTERN.test(value)
+}
+
+function isPublicCode(value: unknown): value is string {
+  return typeof value === 'string' && PUBLIC_CODE_PATTERN.test(value)
 }
 
 /* Server actions are also called by anonymous visitors, but account-owned
@@ -435,6 +452,7 @@ export async function listTests(): Promise<Test[]> {
 /* RLS-scoped, same as listTests — resolves to null if this id
    doesn't exist OR belongs to a different anonymous identity. */
 export async function getTest(id: string): Promise<Test | null> {
+  if (!isUuid(id)) return null
   const db = await createClient()
   const { data: test, error } = await db
     .from('tests')
@@ -478,7 +496,7 @@ export async function listDrafts(): Promise<TestDraft[]> {
 }
 
 export async function getDraft(id: string): Promise<TestDraft | null> {
-  if (!id) return null
+  if (!isUuid(id)) return null
   const { db, user } = await getAuthenticatedClient()
   if (!user) return null
 
@@ -495,6 +513,11 @@ export async function saveServerDraft(
   id: string | null,
   input: DraftData,
 ): Promise<SaveDraftResult> {
+  if (id !== null && !isUuid(id)) {
+    return { ok: false, error: 'The draft identifier is invalid.' }
+  }
+  const limited = await rateLimitDraftWrite()
+  if (!limited.allowed) return { ok: false, error: limited.error }
   const validationError = validateDraftData(input)
   if (validationError) return { ok: false, error: validationError }
 
@@ -562,6 +585,9 @@ export async function saveServerDraft(
 export type DeleteDraftResult = { ok: true } | { ok: false; error: string }
 
 export async function deleteDraft(id: string): Promise<DeleteDraftResult> {
+  if (!isUuid(id)) return { ok: false, error: 'This draft could not be found.' }
+  const limited = await rateLimitDraftWrite()
+  if (!limited.allowed) return { ok: false, error: limited.error }
   const { db, user } = await getAuthenticatedClient()
   if (!user) return { ok: false, error: 'Sign in to manage your drafts.' }
 
@@ -646,7 +672,7 @@ export async function listTakenTests(): Promise<TestAttempt[]> {
 }
 
 export async function getAttempt(id: string): Promise<AttemptDetail | null> {
-  if (!id) return null
+  if (!isUuid(id)) return null
   const { db, user } = await getAuthenticatedClient()
   if (!user) return null
 
@@ -687,6 +713,7 @@ export async function getAttempt(id: string): Promise<AttemptDetail | null> {
 export async function getPublicTestByCode(
   code: string,
 ): Promise<PublicTest | null> {
+  if (!isPublicCode(code)) return null
   const limited = await rateLimitCodeLookup()
   if (!limited.allowed) return null
 
@@ -797,6 +824,11 @@ export async function updateTest(
   id: string,
   input: CreateTestInput,
 ): Promise<UpdateTestResult> {
+  if (!isUuid(id)) {
+    return { ok: false, error: 'This test could not be found or you no longer have permission to edit it.' }
+  }
+  const limited = await rateLimitTestWrite()
+  if (!limited.allowed) return { ok: false, error: limited.error }
   const validationError = validateCreateTestInput(input)
   if (validationError) return { ok: false, error: validationError }
 
@@ -868,6 +900,11 @@ export type DeleteTestResult = { ok: true } | { ok: false; error: string }
    deleted id back so callers can distinguish that outcome from a successful
    deletion and keep the confirmation dialog open with a useful error. */
 export async function deleteTest(id: string): Promise<DeleteTestResult> {
+  if (!isUuid(id)) {
+    return { ok: false, error: 'This test was not found or you no longer have permission to delete it.' }
+  }
+  const limited = await rateLimitTestWrite()
+  if (!limited.allowed) return { ok: false, error: limited.error }
   const db = await createClient()
   const { data, error } = await db
     .from('tests')
@@ -891,6 +928,9 @@ export async function deleteTest(id: string): Promise<DeleteTestResult> {
 }
 
 export async function duplicateTest(id: string): Promise<{ id: string } | null> {
+  if (!isUuid(id)) return null
+  const limited = await rateLimitTestWrite()
+  if (!limited.allowed) return null
   const db = await createClient()
   // RLS ("tests_select_own") means this SELECT only succeeds for a
   // test this browser owns — a stranger's test id resolves to null.
@@ -947,6 +987,7 @@ export async function submitResponse(
   captchaToken: string,
   deviceId: string,
 ): Promise<SubmitResult> {
+  if (!isUuid(testId)) return { ok: false, error: 'Test not found.' }
   const limited = await rateLimitSubmitResponse(testId)
   if (!limited.allowed) return { ok: false, error: limited.error }
 
@@ -986,7 +1027,7 @@ export async function submitResponse(
   /* Single-attempt is account + test for signed-in people, with the original
      device lock retained as a fallback for public/anonymous test-takers. */
   if (row.single_attempt) {
-    if (!takerId && !deviceId) {
+    if (!takerId && (!deviceId || typeof deviceId !== 'string' || deviceId.length > 200)) {
       return {
         ok: false,
         error: 'Could not verify this device. Please reload and try again.',
@@ -1010,11 +1051,19 @@ export async function submitResponse(
   }
 
   const questions = normalizeQuestions(row.questions)
+  const validatedInput = validateResponseInput(
+    questions,
+    rawAnswers,
+    takerName,
+    deviceId,
+  )
+  if (!validatedInput.ok) return validatedInput
+  const answers = validatedInput.answers
   let autoEarned = 0
   let autoPossible = 0
   let needsGrading = false
   for (const q of questions) {
-    const g = gradeQuestion(q, rawAnswers[q.id])
+    const g = gradeQuestion(q, answers[q.id])
     if (g.auto) {
       autoPossible += q.points
       autoEarned += g.earned
@@ -1024,7 +1073,7 @@ export async function submitResponse(
   }
 
   const name =
-    takerName.trim() || `Anon-${Math.floor(1000 + Math.random() * 9000)}`
+    validatedInput.takerName || `Anon-${Math.floor(1000 + Math.random() * 9000)}`
 
   let attemptNumber: number | null = null
   if (takerId) {
@@ -1045,12 +1094,12 @@ export async function submitResponse(
   const responsePayload = {
     test_id: testId,
     taker_name: name,
-    answers: rawAnswers,
+    answers,
     auto_earned: autoEarned,
     auto_possible: autoPossible,
     manual_scores: {},
     needs_grading: needsGrading,
-    device_id: deviceId || null,
+    device_id: validatedInput.deviceId || null,
     taker_id: takerId,
     attempt_number: attemptNumber,
     test_snapshot: toTestSnapshot(row),
@@ -1087,7 +1136,7 @@ export async function submitResponse(
   // for the server-side grade above.
   return {
     ok: true,
-    result: buildTestResult(questions, rawAnswers, autoEarned),
+    result: buildTestResult(questions, answers, autoEarned),
     responseId: insertedId,
   }
 }
@@ -1101,7 +1150,11 @@ export async function hasDeviceSubmitted(
   testId: string,
   deviceId: string,
 ): Promise<boolean> {
-  if (!deviceId) return false
+  if (!isUuid(testId) || typeof deviceId !== 'string' || !deviceId || deviceId.length > 200) {
+    return false
+  }
+  const limited = await rateLimitSubmissionStatus(testId)
+  if (!limited.allowed) return false
   const db = createServiceClient()
   const { data, error } = await db
     .from('responses')
@@ -1121,6 +1174,11 @@ export async function hasSubmitted(
   testId: string,
   deviceId: string,
 ): Promise<boolean> {
+  if (!isUuid(testId) || typeof deviceId !== 'string' || deviceId.length > 200) {
+    return false
+  }
+  const limited = await rateLimitSubmissionStatus(testId)
+  if (!limited.allowed) return false
   const { user } = await getAuthenticatedClient()
   if (!user && !deviceId) return false
 
@@ -1137,6 +1195,14 @@ export async function gradeEssay(
   questionId: string,
   points: number,
 ): Promise<void> {
+  if (!isUuid(testId) || !isUuid(responseId) || typeof questionId !== 'string' || !questionId) {
+    throw new Error('The grading request is invalid.')
+  }
+  if (!Number.isFinite(points) || points < 0) {
+    throw new Error('The score is invalid.')
+  }
+  const limited = await rateLimitGradeEssay()
+  if (!limited.allowed) throw new Error(limited.error)
   // Ownership check, closing the IDOR gap: this SELECT goes through the
   // RLS-scoped client, so it only returns a row if the "tests_select_own"
   // policy allows it — i.e. this browser's anonymous auth.uid() actually
@@ -1157,10 +1223,11 @@ export async function gradeEssay(
     await Promise.all([
       db.from('tests').select('questions').eq('id', testId).maybeSingle(),
       db
-        .from('responses')
-        .select('manual_scores, test_snapshot')
-        .eq('id', responseId)
-        .maybeSingle(),
+      .from('responses')
+      .select('manual_scores, test_snapshot')
+      .eq('id', responseId)
+      .eq('test_id', testId)
+      .maybeSingle(),
     ])
   if (tErr) throw new Error(tErr.message)
   if (rErr) throw new Error(rErr.message)
@@ -1173,10 +1240,16 @@ export async function gradeEssay(
     : Array.isArray((test as { questions: Question[] }).questions)
       ? (test as { questions: Question[] }).questions
       : []
+  const essay = questions.find(
+    (question) => question.id === questionId && question.type === 'essay',
+  )
+  if (!essay) {
+    throw new Error('This response does not contain that essay question.')
+  }
   const manualScores: Record<string, number> = {
     ...((response as { manual_scores: Record<string, number> }).manual_scores ??
       {}),
-    [questionId]: points,
+    [questionId]: Math.min(essay.points, points),
   }
   const essays = questions.filter((q) => q.type === 'essay')
   const stillPending = essays.some((q) => manualScores[q.id] === undefined)
