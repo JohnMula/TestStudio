@@ -249,23 +249,34 @@ function YourTests({ tests }: { tests: ReturnType<typeof useTests> }) {
   return (
     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
       {tests.map((test) => (
-        <article key={test.id} className="group flex flex-col gap-5 rounded-[16px] border border-border bg-card p-5 shadow-soft transition-shadow hover:shadow-soft-lg">
+        <article key={test.id} className="group relative flex flex-col gap-5 rounded-[16px] border border-border bg-card p-5 shadow-soft transition-shadow hover:shadow-soft-lg">
           <div className="flex items-start justify-between gap-3">
-            <Link href={`/test/${test.id}`} className="min-w-0 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-primary/40">
-              <h2 className="font-heading text-base font-semibold leading-snug text-foreground text-balance">{test.title}</h2>
-            </Link>
-            <div className="flex shrink-0 items-center gap-1">
+            <h2 className="min-w-0 font-heading text-base font-semibold leading-snug text-foreground text-balance">
+              {/* This link's ::before is stretched to cover the entire card
+                  (see `before:absolute before:inset-0` below), so clicking
+                  anywhere on the card opens the test — not just the title
+                  text or the arrow row. The code badge and actions menu sit
+                  in a `relative z-10` layer so they still intercept their
+                  own clicks instead of triggering navigation. */}
+              <Link
+                href={`/test/${test.id}`}
+                className="outline-none before:absolute before:inset-0 before:z-0 before:rounded-[16px] before:content-[''] focus-visible:before:ring-2 focus-visible:before:ring-primary/40"
+              >
+                {test.title}
+              </Link>
+            </h2>
+            <div className="relative z-10 flex shrink-0 items-center gap-1">
               <span className="rounded-md bg-accent px-2 py-1 font-mono text-xs text-accent-foreground">{test.code}</span>
               <TestActionsMenu testId={test.id} />
             </div>
           </div>
-          <Link href={`/test/${test.id}`} className="mt-auto flex items-center justify-between rounded-sm text-sm text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-primary/40">
+          <div className="mt-auto flex items-center justify-between text-sm text-muted-foreground">
             <span className="flex items-center gap-4">
               <span className="flex items-center gap-1.5"><HelpCircle className="size-4" aria-hidden />{test.questions.length}</span>
               <span className="flex items-center gap-1.5"><Users className="size-4" aria-hidden />{test.responses.length}</span>
             </span>
             <ArrowRight className="size-4 transition-transform group-hover:translate-x-1" aria-hidden />
-          </Link>
+          </div>
         </article>
       ))}
     </div>
