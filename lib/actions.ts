@@ -5,15 +5,20 @@ import {
   gradeQuestion,
   makeCode,
   normalizeQuestions,
+  QUESTION_TYPES,
   seededShuffle,
   toPublicQuestion,
   validateCreateTestInput,
   type CreateTestInput,
+  type AttemptDetail,
+  type DraftData,
   type PublicTest,
   type Question,
   type ResultQuestionReview,
   type Response,
   type Test,
+  type TestAttempt,
+  type TestDraft,
   type TestResult,
   type TestSnapshot,
 } from '@/lib/types'
@@ -58,10 +63,39 @@ type ResponseRow = {
   needs_grading: boolean
   submitted_at: string
   test_snapshot: TestSnapshot | null
+  taker_id?: string | null
+  attempt_number?: number | null
+}
+
+type DraftRow = {
+  id: string
+  title: string
+  question_type: string
+  draft_data: DraftData
+  created_at: string
+  updated_at: string
+}
+
+type PublicAttemptTestRow = {
+  id: string
+  code: string
+  single_attempt: boolean
 }
 
 function ms(value: string | null): number | null {
   return value ? new Date(value).getTime() : null
+}
+
+/* Server actions are also called by anonymous visitors, but account-owned
+   drafts and history must never silently become anonymous data.  Keep this
+   check next to the server client boundary so every action has the same
+   definition of a signed-in TestStudio account. */
+async function getAuthenticatedClient() {
+  const db = await createClient()
+  const { data, error } = await db.auth.getUser()
+  const user = data.user
+  if (error || !user || user.is_anonymous) return { db, user: null }
+  return { db, user }
 }
 
 function mapResponse(row: ResponseRow): Response {
@@ -253,6 +287,7 @@ function buildTestResult(
   questions: Question[],
   rawAnswers: Record<string, unknown>,
   scoreEarned: number,
+  manualScores: Record<string, number> = {},
 ): TestResult {
   let correctCount = 0
   let incorrectCount = 0
@@ -283,7 +318,9 @@ function buildTestResult(
         ? { explanation: question.explanation.trim() }
         : {}),
       status,
-      pointsEarned: grade.earned,
+      pointsEarned: grade.auto
+        ? grade.earned
+        : Math.max(0, Math.min(question.points, manualScores[question.id] ?? 0)),
       pointsPossible: question.points,
     }
   })
@@ -299,6 +336,57 @@ function buildTestResult(
     needsGrading: manualGradingCount > 0,
     questions: resultQuestions,
   }
+}
+
+function mapDraft(row: DraftRow): TestDraft {
+  const data = row.draft_data ?? ({} as DraftData)
+  const questions = normalizeQuestions(data.questions)
+  const fallbackType = questions[questions.length - 1]?.type ?? 'multiple_choice'
+  const questionType = QUESTION_TYPES.some((item) => item.type === data.questionType)
+    ? data.questionType
+    : fallbackType
+  return {
+    id: row.id,
+    title: typeof data.title === 'string' ? data.title : row.title ?? '',
+    code: typeof data.code === 'string' ? data.code : '',
+    timeLimit: typeof data.timeLimit === 'string' ? data.timeLimit : '15m',
+    shuffle: data.shuffle ?? true,
+    shuffleChoices: data.shuffleChoices ?? true,
+    singleAttempt: data.singleAttempt ?? false,
+    questionType,
+    questions,
+    opensAt: typeof data.opensAt === 'number' ? data.opensAt : null,
+    closesAt: typeof data.closesAt === 'number' ? data.closesAt : null,
+    createdAt: new Date(row.created_at).getTime(),
+    updatedAt: new Date(row.updated_at).getTime(),
+  }
+}
+
+function validateDraftData(input: DraftData): string | null {
+  if (!input || typeof input !== 'object') return 'The draft data is invalid.'
+  if (typeof input.title !== 'string' || input.title.length > 200) {
+    return 'Draft title is too long.'
+  }
+  if (!Array.isArray(input.questions) || input.questions.length > 200) {
+    return 'A draft can contain up to 200 questions.'
+  }
+  if (!QUESTION_TYPES.some((item) => item.type === input.questionType)) {
+    return 'The draft question type is invalid.'
+  }
+  // The generous cap keeps autosave useful for unfinished questions while
+  // still protecting the JSONB column from accidental megabyte-scale input.
+  if (JSON.stringify(input).length > 1_000_000) {
+    return 'This draft is too large to save.'
+  }
+  return null
+}
+
+function scoreForResponse(response: ResponseRow): number {
+  const manual = Object.values(response.manual_scores ?? {}).reduce(
+    (total, value) => total + (typeof value === 'number' ? value : 0),
+    0,
+  )
+  return (response.auto_earned ?? 0) + manual
 }
 
 /* ============================================================
@@ -356,6 +444,227 @@ export async function getTest(id: string): Promise<Test | null> {
   if (rErr) throw new Error(rErr.message)
 
   return mapTest(test as TestRow, (responses ?? []) as ResponseRow[])
+}
+
+/* ============================================================
+   Account-backed drafts
+
+   Draft rows are deliberately separate from published tests.  That lets an
+   unfinished editor state survive across devices without making incomplete
+   tests public or polluting the creator's published-test list.
+   ============================================================ */
+
+export type SaveDraftResult =
+  | { ok: true; draft: TestDraft }
+  | { ok: false; error: string; needsSignIn?: boolean }
+
+export async function listDrafts(): Promise<TestDraft[]> {
+  const { db, user } = await getAuthenticatedClient()
+  if (!user) return []
+
+  const { data, error } = await db
+    .from('drafts')
+    .select('*')
+    .order('updated_at', { ascending: false })
+  if (error) throw new Error(error.message)
+  return ((data ?? []) as DraftRow[]).map(mapDraft)
+}
+
+export async function getDraft(id: string): Promise<TestDraft | null> {
+  if (!id) return null
+  const { db, user } = await getAuthenticatedClient()
+  if (!user) return null
+
+  const { data, error } = await db
+    .from('drafts')
+    .select('*')
+    .eq('id', id)
+    .maybeSingle()
+  if (error) throw new Error(error.message)
+  return data ? mapDraft(data as DraftRow) : null
+}
+
+export async function saveServerDraft(
+  id: string | null,
+  input: DraftData,
+): Promise<SaveDraftResult> {
+  const validationError = validateDraftData(input)
+  if (validationError) return { ok: false, error: validationError }
+
+  const { db, user } = await getAuthenticatedClient()
+  if (!user) {
+    return {
+      ok: false,
+      needsSignIn: true,
+      error: 'Sign in to save drafts to your account.',
+    }
+  }
+
+  const payload = {
+    title: input.title.trim() || 'Untitled test',
+    question_type: input.questionType,
+    draft_data: input,
+  }
+
+  if (id) {
+    const { data, error } = await db
+      .from('drafts')
+      .update(payload)
+      .eq('id', id)
+      .select('*')
+      .maybeSingle()
+    if (data) return { ok: true, draft: mapDraft(data as DraftRow) }
+    if (error) {
+      return {
+        ok: false,
+        error: 'Unable to save this draft. Please try again.',
+      }
+    }
+
+    // A browser creates its UUID before the first debounce fires. If two
+    // overlapping autosaves arrive before the row exists, they both carry
+    // that same id, so this insert path can never create duplicate drafts.
+    const { data: inserted, error: insertError } = await db
+      .from('drafts')
+      .insert({ ...payload, id, owner_id: user.id })
+      .select('*')
+      .single()
+    if (inserted) return { ok: true, draft: mapDraft(inserted as DraftRow) }
+    if (insertError?.code === '23505') {
+      const { data: concurrent } = await db
+        .from('drafts')
+        .select('*')
+        .eq('id', id)
+        .maybeSingle()
+      if (concurrent) return { ok: true, draft: mapDraft(concurrent as DraftRow) }
+    }
+    return { ok: false, error: 'Unable to create this draft. Please try again.' }
+  }
+
+  const { data, error } = await db
+    .from('drafts')
+    .insert({ ...payload, owner_id: user.id })
+    .select('*')
+    .single()
+  if (error) {
+    return { ok: false, error: 'Unable to create this draft. Please try again.' }
+  }
+  return { ok: true, draft: mapDraft(data as DraftRow) }
+}
+
+export type DeleteDraftResult = { ok: true } | { ok: false; error: string }
+
+export async function deleteDraft(id: string): Promise<DeleteDraftResult> {
+  const { db, user } = await getAuthenticatedClient()
+  if (!user) return { ok: false, error: 'Sign in to manage your drafts.' }
+
+  const { data, error } = await db
+    .from('drafts')
+    .delete()
+    .eq('id', id)
+    .select('id')
+    .maybeSingle()
+  if (error || !data) {
+    return { ok: false, error: 'Unable to delete this draft. Please try again.' }
+  }
+  return { ok: true }
+}
+
+/* ============================================================
+   Account test history
+
+   A response gets a taker_id only when the current auth session is a real
+   account.  Anonymous/public submissions still work exactly as before, but
+   signed-in takers can retrieve only their own immutable response snapshot.
+   ============================================================ */
+
+async function currentTestsForAttempts(testIds: string[]) {
+  if (testIds.length === 0) return new Map<string, PublicAttemptTestRow>()
+  const { data, error } = await createServiceClient()
+    .from('tests')
+    .select('id, code, single_attempt')
+    .in('id', testIds)
+  if (error) throw new Error(error.message)
+  return new Map(
+    ((data ?? []) as PublicAttemptTestRow[]).map((test) => [test.id, test]),
+  )
+}
+
+function mapAttempt(
+  row: ResponseRow,
+  current: PublicAttemptTestRow | undefined,
+): TestAttempt | null {
+  const snapshot = row.test_snapshot
+  if (!snapshot?.questions) return null
+  const questions = normalizeQuestions(snapshot.questions)
+  const totalPossible = questions.reduce((sum, question) => sum + question.points, 0)
+  const scoreEarned = scoreForResponse(row)
+  return {
+    id: row.id,
+    testId: row.test_id,
+    title: snapshot.title || 'Untitled test',
+    code: snapshot.code || current?.code || '',
+    takerName: row.taker_name,
+    attemptNumber: row.attempt_number ?? 1,
+    submittedAt: new Date(row.submitted_at).getTime(),
+    scoreEarned,
+    totalPossible,
+    percentage: totalPossible > 0 ? Math.round((scoreEarned / totalPossible) * 100) : 0,
+    needsGrading: row.needs_grading,
+    singleAttempt: current?.single_attempt ?? snapshot.singleAttempt,
+    canRetake: Boolean(current && !current.single_attempt),
+    ...(current && !current.single_attempt ? { retakeCode: current.code } : {}),
+  }
+}
+
+export async function listTakenTests(): Promise<TestAttempt[]> {
+  const { db, user } = await getAuthenticatedClient()
+  if (!user) return []
+
+  const { data, error } = await db
+    .from('responses')
+    .select('*')
+    .eq('taker_id', user.id)
+    .order('submitted_at', { ascending: false })
+  if (error) throw new Error(error.message)
+
+  const rows = (data ?? []) as ResponseRow[]
+  const currentTests = await currentTestsForAttempts(
+    [...new Set(rows.map((row) => row.test_id))],
+  )
+  return rows.flatMap((row) => {
+    const attempt = mapAttempt(row, currentTests.get(row.test_id))
+    return attempt ? [attempt] : []
+  })
+}
+
+export async function getAttempt(id: string): Promise<AttemptDetail | null> {
+  if (!id) return null
+  const { db, user } = await getAuthenticatedClient()
+  if (!user) return null
+
+  const { data, error } = await db
+    .from('responses')
+    .select('*')
+    .eq('id', id)
+    .eq('taker_id', user.id)
+    .maybeSingle()
+  if (error) throw new Error(error.message)
+  if (!data) return null
+
+  const row = data as ResponseRow
+  const currentTests = await currentTestsForAttempts([row.test_id])
+  const attempt = mapAttempt(row, currentTests.get(row.test_id))
+  const snapshot = row.test_snapshot
+  if (!attempt || !snapshot) return null
+
+  const result = buildTestResult(
+    normalizeQuestions(snapshot.questions),
+    row.answers ?? {},
+    scoreForResponse(row),
+    row.manual_scores ?? {},
+  )
+  return { ...attempt, result }
 }
 
 /* Answer-free payload for test-takers. Correct answers, alternates,
@@ -612,6 +921,7 @@ export type SubmitResult =
   | {
       ok: true
       result: TestResult
+      responseId: string
     }
   | { ok: false; error: string }
 
@@ -656,32 +966,34 @@ export async function submitResponse(
     return { ok: false, error: 'This test is closed.' }
   }
 
-  /* Single-attempt lock, closing the gap flagged in the security
-     review: single_attempt was stored on the row but nothing ever
-     read it back. Enforced by device id (lib/store.ts —
-     getDeviceId()) rather than an account, since takers never sign
-     in — this stops an accidental or casual retake, not someone who
-     deliberately clears site data or switches browsers. Requires a
-     device_id column on responses; see supabase/single_attempt.sql. */
+  // Do not accept a user id from the browser. The server reads the current
+  // session itself so a signed-in taker cannot attach a response to somebody
+  // else's history. Anonymous takers retain the original public flow.
+  const { user: accountUser } = await getAuthenticatedClient()
+  const takerId = accountUser?.id ?? null
+
+  /* Single-attempt is account + test for signed-in people, with the original
+     device lock retained as a fallback for public/anonymous test-takers. */
   if (row.single_attempt) {
-    if (!deviceId) {
+    if (!takerId && !deviceId) {
       return {
         ok: false,
         error: 'Could not verify this device. Please reload and try again.',
       }
     }
-    const { data: existing, error: existErr } = await db
-      .from('responses')
-      .select('id')
-      .eq('test_id', testId)
-      .eq('device_id', deviceId)
-      .limit(1)
+    let existingQuery = db.from('responses').select('id').eq('test_id', testId)
+    existingQuery = takerId
+      ? existingQuery.eq('taker_id', takerId)
+      : existingQuery.eq('device_id', deviceId)
+    const { data: existing, error: existErr } = await existingQuery.limit(1)
     if (existErr) return { ok: false, error: existErr.message }
     if (existing && existing.length > 0) {
       return {
         ok: false,
         error:
-          'This is a one-attempt test, and you already submitted it from this device.',
+          takerId
+            ? 'This is a one-attempt test, and you have already submitted it from this account.'
+            : 'This is a one-attempt test, and you already submitted it from this device.',
       }
     }
   }
@@ -703,7 +1015,23 @@ export async function submitResponse(
   const name =
     takerName.trim() || `Anon-${Math.floor(1000 + Math.random() * 9000)}`
 
-  const { error: insErr } = await db.from('responses').insert({
+  let attemptNumber: number | null = null
+  if (takerId) {
+    const { data: priorAttempts, error: attemptsError } = await db
+      .from('responses')
+      .select('attempt_number')
+      .eq('test_id', testId)
+      .eq('taker_id', takerId)
+    if (attemptsError) return { ok: false, error: attemptsError.message }
+    attemptNumber =
+      (priorAttempts ?? []).reduce(
+        (highest, attempt) =>
+          Math.max(highest, Number((attempt as { attempt_number?: number }).attempt_number) || 0),
+        0,
+      ) + 1
+  }
+
+  const responsePayload = {
     test_id: testId,
     taker_name: name,
     answers: rawAnswers,
@@ -712,9 +1040,35 @@ export async function submitResponse(
     manual_scores: {},
     needs_grading: needsGrading,
     device_id: deviceId || null,
+    taker_id: takerId,
+    attempt_number: attemptNumber,
     test_snapshot: toTestSnapshot(row),
-  })
-  if (insErr) return { ok: false, error: insErr.message }
+  }
+
+  // The migration adds a partial unique index for account attempt numbers.
+  // Retrying a collision means two tabs submitting at once still get clear,
+  // distinct attempt numbers instead of overwriting or duplicating history.
+  let insertedId: string | null = null
+  for (let tries = 0; tries < 3 && !insertedId; tries += 1) {
+    const { data: inserted, error: insErr } = await db
+      .from('responses')
+      .insert({
+        ...responsePayload,
+        attempt_number: attemptNumber === null ? null : attemptNumber + tries,
+      })
+      .select('id')
+      .single()
+    if (!insErr && inserted) {
+      insertedId = (inserted as { id: string }).id
+      break
+    }
+    if (insErr?.code !== '23505') {
+      return { ok: false, error: insErr?.message ?? 'Unable to submit this test.' }
+    }
+  }
+  if (!insertedId) {
+    return { ok: false, error: 'Unable to create a new attempt. Please try again.' }
+  }
 
   // This payload deliberately comes after the successful insert. It is the
   // only point at which correct answers and rationalizations are released to
@@ -723,6 +1077,7 @@ export async function submitResponse(
   return {
     ok: true,
     result: buildTestResult(questions, rawAnswers, autoEarned),
+    responseId: insertedId,
   }
 }
 
@@ -743,6 +1098,24 @@ export async function hasDeviceSubmitted(
     .eq('test_id', testId)
     .eq('device_id', deviceId)
     .limit(1)
+  if (error) throw new Error(error.message)
+  return (data ?? []).length > 0
+}
+
+/* Same friendly pre-flight check for the current visitor. Authenticated
+   sessions are checked by account + test; anonymous sessions retain the
+   device check. submitResponse() repeats this server-side before inserting,
+   so this is UX only and never the enforcement boundary. */
+export async function hasSubmitted(
+  testId: string,
+  deviceId: string,
+): Promise<boolean> {
+  const { user } = await getAuthenticatedClient()
+  if (!user && !deviceId) return false
+
+  let query = createServiceClient().from('responses').select('id').eq('test_id', testId)
+  query = user ? query.eq('taker_id', user.id) : query.eq('device_id', deviceId)
+  const { data, error } = await query.limit(1)
   if (error) throw new Error(error.message)
   return (data ?? []).length > 0
 }

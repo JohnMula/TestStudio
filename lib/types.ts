@@ -560,6 +560,54 @@ export type CreateTestInput = {
   closesAt?: number | null
 }
 
+/* ---------- account-backed builder drafts ---------- */
+
+/* Drafts intentionally use the same shape as the create form, but unlike a
+   published test they are allowed to be incomplete.  Keeping the complete
+   form state together makes a draft portable across browsers and means the
+   editor can restore it without a second, lossy mapping. */
+export type DraftData = {
+  title: string
+  code: string
+  timeLimit: string
+  shuffle: boolean
+  shuffleChoices: boolean
+  singleAttempt: boolean
+  questionType: QType
+  questions: Question[]
+  opensAt: number | null
+  closesAt: number | null
+}
+
+export type TestDraft = DraftData & {
+  id: string
+  createdAt: number
+  updatedAt: number
+}
+
+/* ---------- authenticated test-taking history ---------- */
+
+export type TestAttempt = {
+  id: string
+  testId: string
+  title: string
+  code: string
+  takerName: string
+  attemptNumber: number
+  submittedAt: number
+  scoreEarned: number
+  totalPossible: number
+  percentage: number
+  needsGrading: boolean
+  singleAttempt: boolean
+  canRetake: boolean
+  retakeCode?: string
+}
+
+export type AttemptDetail = TestAttempt & {
+  result: TestResult
+}
+
 /* ---------- server-side size limits ----------
    createTest() used to insert whatever shape of questions array the
    client sent, with no cap on count or string length. These numbers

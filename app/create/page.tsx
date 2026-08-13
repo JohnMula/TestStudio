@@ -14,7 +14,10 @@ import {
   createTest,
   updateTest,
   blankQuestion,
+  deleteServerDraft,
+  getDraftForEditing,
   saveDraft,
+  saveServerDraft,
   loadDraft,
   clearDraft,
   saveToBank,
@@ -43,6 +46,7 @@ function CreateEditor() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const editId = searchParams.get('edit')
+  const requestedDraftId = searchParams.get('draft')
   const isEditing = Boolean(editId)
 
   const [title, setTitle] = useState('')
@@ -64,8 +68,14 @@ function CreateEditor() {
   const [loaded, setLoaded] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [savedAt, setSavedAt] = useState<number | null>(null)
+  const [autosaveState, setAutosaveState] = useState<
+    'idle' | 'saving' | 'saved' | 'local' | 'error'
+  >('idle')
+  const [autosaveError, setAutosaveError] = useState<string | null>(null)
   const [publishing, setPublishing] = useState(false)
   const [publishError, setPublishError] = useState<string | null>(null)
+  const draftIdRef = useRef<string | null>(null)
+  const discardDraftRef = useRef(false)
 
   /* ---------- autosave: load once, then persist on change ---------- */
   useEffect(() => {
@@ -111,8 +121,51 @@ function CreateEditor() {
         return
       }
 
+      if (requestedDraftId) {
+        try {
+          const draft = await getDraftForEditing(requestedDraftId)
+          if (!active) return
+          if (!draft) {
+            setLoadError('This draft could not be found or you no longer have permission to open it.')
+            return
+          }
+          draftIdRef.current = draft.id
+          setTitle(draft.title)
+          setCustomCode(draft.code)
+          setTimeLimit((draft.timeLimit as TimeOpt) ?? '15m')
+          setShuffle(draft.shuffle)
+          setShuffleChoices(draft.shuffleChoices)
+          setSingleAttempt(draft.singleAttempt)
+          setQuestions(draft.questions)
+          setOpensAt(toLocalInput(draft.opensAt))
+          setClosesAt(toLocalInput(draft.closesAt))
+          setQuestionType(draft.questionType)
+          setSavedAt(draft.updatedAt)
+          setAutosaveState('saved')
+          saveDraft({
+            id: draft.id,
+            title: draft.title,
+            code: draft.code,
+            timeLimit: draft.timeLimit,
+            shuffle: draft.shuffle,
+            shuffleChoices: draft.shuffleChoices,
+            singleAttempt: draft.singleAttempt,
+            questionType: draft.questionType,
+            questions: draft.questions,
+            opensAt: draft.opensAt,
+            closesAt: draft.closesAt,
+          })
+        } catch {
+          if (active) setLoadError('Unable to load this draft. Please try again.')
+        } finally {
+          if (active) setLoaded(true)
+        }
+        return
+      }
+
     const d = loadDraft()
     if (d) {
+      draftIdRef.current = d.id ?? null
       setTitle(d.title)
       setCustomCode(d.code ?? '')
       setTimeLimit((d.timeLimit as TimeOpt) ?? '15m')
@@ -123,6 +176,7 @@ function CreateEditor() {
       setOpensAt(toLocalInput(d.opensAt))
       setClosesAt(toLocalInput(d.closesAt))
       setQuestionType(d.questionType)
+      setSavedAt(d.savedAt)
     } else {
       // No draft yet — start from this browser's saved defaults
       // (Settings page) instead of the hardcoded fallbacks.
@@ -139,12 +193,12 @@ function CreateEditor() {
     return () => {
       active = false
     }
-  }, [editId])
+  }, [editId, requestedDraftId])
 
   useEffect(() => {
     if (!loaded || isEditing) return
     const t = setTimeout(() => {
-      saveDraft({
+      const draft = {
         title,
         code: customCode,
         timeLimit,
@@ -155,8 +209,48 @@ function CreateEditor() {
         questions,
         opensAt: opensAt ? new Date(opensAt).getTime() : null,
         closesAt: closesAt ? new Date(closesAt).getTime() : null,
+      }
+      if (!draft.title.trim() && draft.questions.length === 0) return
+
+      // Keep a browser cache first, then synchronise the same stable draft id
+      // to Supabase. A temporary connection problem never discards edits.
+      if (!draftIdRef.current && typeof crypto !== 'undefined') {
+        draftIdRef.current = crypto.randomUUID()
+      }
+      saveDraft({
+        ...draft,
+        ...(draftIdRef.current ? { id: draftIdRef.current } : {}),
       })
       setSavedAt(Date.now())
+      setAutosaveState('saving')
+      setAutosaveError(null)
+      void saveServerDraft(draftIdRef.current, draft)
+        .then((result) => {
+          if (result.ok) {
+            draftIdRef.current = result.draft.id
+            if (discardDraftRef.current) {
+              void deleteServerDraft(result.draft.id)
+              return
+            }
+            saveDraft({ ...draft, id: result.draft.id })
+            setSavedAt(result.draft.updatedAt)
+            setAutosaveState('saved')
+            return
+          }
+          if (result.needsSignIn) {
+            setSavedAt(Date.now())
+            setAutosaveState('local')
+            return
+          }
+          setAutosaveState('error')
+          setAutosaveError(result.error)
+        })
+        .catch(() => {
+          setAutosaveState('error')
+          setAutosaveError(
+            'Unable to save this draft. Your latest changes remain on this device.',
+          )
+        })
     }, 1200)
     return () => clearTimeout(t)
   }, [
@@ -263,7 +357,15 @@ function CreateEditor() {
       setPublishing(false)
       return
     }
-    if (!isEditing) clearDraft()
+    if (!isEditing) {
+      discardDraftRef.current = true
+      const draftId = draftIdRef.current
+      clearDraft()
+      // Publishing is already durable at this point; a failed cleanup should
+      // not turn a published test into an apparent failure. The dashboard
+      // revalidates after the best-effort delete.
+      if (draftId) void deleteServerDraft(draftId)
+    }
     router.push(`/test/${res.id}?${isEditing ? 'updated' : 'created'}=1`)
   }
 
@@ -273,10 +375,25 @@ function CreateEditor() {
         maxWidth="max-w-3xl"
         right={
           <div className="flex items-center gap-4">
-            {!isEditing && savedAt ? (
-              <span className="hidden items-center gap-1.5 font-mono text-xs text-muted-foreground sm:flex">
-                <Check className="size-3.5 text-primary" aria-hidden />
-                Autosaved
+            {!isEditing && (autosaveState === 'saving' || savedAt) ? (
+              <span
+                className={`hidden items-center gap-1.5 font-mono text-xs sm:flex ${
+                  autosaveState === 'error' ? 'text-destructive' : 'text-muted-foreground'
+                }`}
+                title={autosaveError ?? undefined}
+              >
+                {autosaveState === 'saving' ? (
+                  <span className="size-3 animate-spin rounded-full border border-secondary border-t-primary" />
+                ) : (
+                  <Check className="size-3.5 text-primary" aria-hidden />
+                )}
+                {autosaveState === 'saving'
+                  ? 'Saving…'
+                  : autosaveState === 'local'
+                    ? 'Saved on this device'
+                    : autosaveState === 'error'
+                      ? 'Draft save failed'
+                      : 'Autosaved'}
               </span>
             ) : null}
             <Link

@@ -6,11 +6,19 @@ import {
   createTest as createTestAction,
   deleteTest as deleteTestAction,
   duplicateTest as duplicateTestAction,
+  deleteDraft as deleteDraftAction,
+  getAttempt as getAttemptAction,
+  getDraft as getDraftAction,
   gradeEssay as gradeEssayAction,
   getTest,
+  listDrafts,
+  listTakenTests,
   listTests,
+  saveServerDraft as saveServerDraftAction,
   type CreateTestResult,
   type DeleteTestResult,
+  type DeleteDraftResult,
+  type SaveDraftResult,
   type UpdateTestResult,
   updateTest as updateTestAction,
 } from '@/lib/actions'
@@ -19,9 +27,13 @@ import {
   normalizeQuestion,
   normalizeQuestions,
   type CreateTestInput,
+  type AttemptDetail,
+  type DraftData,
   type Question,
   type QType,
   type Test,
+  type TestAttempt,
+  type TestDraft,
 } from '@/lib/types'
 
 /* Re-export the shared, server-safe types and pure helpers so existing
@@ -29,6 +41,7 @@ import {
 export * from '@/lib/types'
 export type { CreateTestResult } from '@/lib/actions'
 export type { DeleteTestResult } from '@/lib/actions'
+export type { DeleteDraftResult, SaveDraftResult } from '@/lib/actions'
 export type { UpdateTestResult } from '@/lib/actions'
 
 /* ============================================================
@@ -46,8 +59,41 @@ export function useTest(id: string): Test | undefined {
   return data ?? undefined
 }
 
+export function useDrafts(): TestDraft[] {
+  const { data } = useSWR('drafts', () => listDrafts())
+  return data ?? []
+}
+
+export function useTakenTests(): TestAttempt[] {
+  const { data } = useSWR('taken-tests', () => listTakenTests())
+  return data ?? []
+}
+
 export async function getTestForEditing(id: string): Promise<Test | null> {
   return getTest(id)
+}
+
+export async function getDraftForEditing(id: string): Promise<TestDraft | null> {
+  return getDraftAction(id)
+}
+
+export async function getAttempt(id: string): Promise<AttemptDetail | null> {
+  return getAttemptAction(id)
+}
+
+export async function saveServerDraft(
+  id: string | null,
+  draft: DraftData,
+): Promise<SaveDraftResult> {
+  const result = await saveServerDraftAction(id, draft)
+  if (result.ok) await mutate('drafts')
+  return result
+}
+
+export async function deleteServerDraft(id: string): Promise<DeleteDraftResult> {
+  const result = await deleteDraftAction(id)
+  if (result.ok) await mutate('drafts')
+  return result
 }
 
 export async function createTest(
@@ -164,17 +210,10 @@ export function removeFromBank(id: string) {
 
 const DRAFT_KEY = 'teststudio.draft.v2'
 
-export type Draft = {
-  title: string
-  code: string
-  timeLimit: string
-  shuffle: boolean
-  shuffleChoices: boolean
-  singleAttempt: boolean
-  questionType: QType
-  questions: Question[]
-  opensAt: number | null
-  closesAt: number | null
+export type Draft = DraftData & {
+  /* A local copy of an account draft uses the same stable ID. Old browser
+     drafts have no id and are migrated on the next authenticated autosave. */
+  id?: string
   savedAt: number
 }
 
