@@ -234,7 +234,7 @@ function MatchingTaker({
             ))}
           </select>
         </div>
-      ))}
+      ))} 
     </div>
   )
 }

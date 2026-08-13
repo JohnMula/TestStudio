@@ -2,11 +2,12 @@
 
 import Link from 'next/link'
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
-import { Suspense, useEffect, useState } from 'react'
+import { Suspense, useEffect, useRef, useState } from 'react'
 import {
   ArrowLeft,
   Copy,
   Check,
+  AlertCircle,
   Trash2,
   Users,
   ExternalLink,
@@ -39,6 +40,35 @@ function timeAgo(ts: number): string {
   if (hrs < 24) return `${hrs}h ago`
   const days = Math.round(hrs / 24)
   return `${days}d ago`
+}
+
+/* Fallback for when the async Clipboard API is missing or refuses to
+   write (insecure/non-HTTPS origin, an iframe without clipboard-write
+   permission, or the tab briefly not having document focus). Selects
+   the text in a hidden textarea and uses the older execCommand path,
+   which has much looser preconditions than navigator.clipboard. */
+function legacyCopy(text: string): boolean {
+  const textarea = document.createElement('textarea')
+  textarea.value = text
+  textarea.setAttribute('readonly', '')
+  textarea.style.position = 'fixed'
+  textarea.style.top = '0'
+  textarea.style.left = '0'
+  textarea.style.opacity = '0'
+  textarea.style.pointerEvents = 'none'
+  document.body.appendChild(textarea)
+  textarea.focus()
+  textarea.select()
+  textarea.setSelectionRange(0, text.length)
+
+  let ok = false
+  try {
+    ok = document.execCommand('copy')
+  } catch {
+    ok = false
+  }
+  document.body.removeChild(textarea)
+  return ok
 }
 
 function download(filename: string, content: string, type: string) {
@@ -97,7 +127,10 @@ function TestDetail() {
   const search = useSearchParams()
   const router = useRouter()
   const test = useTest(params.id)
-  const [copied, setCopied] = useState(false)
+  const [copyState, setCopyState] = useState<'idle' | 'copied' | 'error'>(
+    'idle',
+  )
+  const copyResetRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [expanded, setExpanded] = useState<string | null>(null)
   const [origin, setOrigin] = useState('')
   const [confirmDelete, setConfirmDelete] = useState(false)
@@ -106,6 +139,14 @@ function TestDetail() {
 
   useEffect(() => {
     setOrigin(window.location.origin)
+  }, [])
+
+  // Clear any pending "flash back to idle" timer on unmount so we never
+  // call setState on an unmounted component.
+  useEffect(() => {
+    return () => {
+      if (copyResetRef.current) clearTimeout(copyResetRef.current)
+    }
   }, [])
 
   const justCreated = search.get('created') === '1'
@@ -144,11 +185,34 @@ function TestDetail() {
         )
       : null
 
-  function copyCode() {
-    navigator.clipboard?.writeText(test!.code).then(() => {
-      setCopied(true)
-      setTimeout(() => setCopied(false), 1500)
-    })
+  function flashCopyState(state: 'copied' | 'error') {
+    if (copyResetRef.current) clearTimeout(copyResetRef.current)
+    setCopyState(state)
+    copyResetRef.current = setTimeout(() => setCopyState('idle'), 1500)
+  }
+
+  async function copyCode() {
+    if (!test) return
+    const code = test.code
+    let success = false
+
+    if (navigator.clipboard?.writeText) {
+      try {
+        await navigator.clipboard.writeText(code)
+        success = true
+      } catch {
+        // Permission denied, insecure context, or the document losing
+        // focus before the write resolved — fall through to the
+        // legacy path instead of leaving this unhandled.
+        success = false
+      }
+    }
+
+    if (!success) {
+      success = legacyCopy(code)
+    }
+
+    flashCopyState(success ? 'copied' : 'error')
   }
 
   async function handleDelete() {
@@ -217,11 +281,14 @@ function TestDetail() {
                 <button
                   type="button"
                   onClick={copyCode}
+                  aria-label="Copy test code"
                   className="flex items-center gap-2 rounded-[10px] border border-border bg-background px-4 py-2 font-mono text-lg text-foreground transition-colors hover:bg-secondary"
                 >
                   {test.code}
-                  {copied ? (
+                  {copyState === 'copied' ? (
                     <Check className="size-4 text-primary" aria-hidden />
+                  ) : copyState === 'error' ? (
+                    <AlertCircle className="size-4 text-destructive" aria-hidden />
                   ) : (
                     <Copy className="size-4 text-muted-foreground" aria-hidden />
                   )}
@@ -234,10 +301,17 @@ function TestDetail() {
                   Preview as taker
                 </Link>
               </div>
-              <p className="text-xs text-muted-foreground">
-                {copied
+              <p
+                aria-live="polite"
+                className={`text-xs ${
+                  copyState === 'error' ? 'text-destructive' : 'text-muted-foreground'
+                }`}
+              >
+                {copyState === 'copied'
                   ? 'Copied to clipboard.'
-                  : 'Anyone with this code can take the test — or scan the QR code on the ticket.'}
+                  : copyState === 'error'
+                    ? "Couldn't copy automatically — select the code and copy it manually."
+                    : 'Anyone with this code can take the test — or scan the QR code on the ticket.'}
               </p>
             </div>
           </section>
