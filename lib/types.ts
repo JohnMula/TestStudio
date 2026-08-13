@@ -143,7 +143,12 @@ export function blankQuestion(type: QType): Question {
       return {
         ...base,
         type,
-        options: [firstOption, { id: makeId(), text: '' }],
+        options: [
+          firstOption,
+          { id: makeId(), text: '' },
+          { id: makeId(), text: '' },
+          { id: makeId(), text: '' },
+        ],
         correct: [firstOption.id],
         multiple: false,
       }
@@ -305,15 +310,17 @@ export function toPublicQuestion(
   shuffleChoices = false,
 ): PublicQuestion {
   switch (q.type) {
-    case 'multiple_choice':
+    case 'multiple_choice': {
+      const populated = q.options.filter((option) => option.text.trim().length > 0)
       return {
         id: q.id,
         type: q.type,
         prompt: q.prompt,
         points: q.points,
-        options: orderedChoiceOptions(q.options, `${q.id}:choices`, shuffleChoices),
+        options: orderedChoiceOptions(populated, `${q.id}:choices`, shuffleChoices),
         multiple: q.multiple,
       }
+    }
     case 'true_false':
     case 'identification':
     case 'essay':
@@ -621,6 +628,20 @@ export function validateCreateTestInput(input: CreateTestInput): string | null {
         for (const opt of q.options) {
           const e = tooLong(opt.text, LIMITS.optionText, `Question ${n} option`)
           if (e) return e
+        }
+        // Blank options are hidden from test takers, so the question is only
+        // usable if enough options actually have text and the marked
+        // correct answer(s) are among those visible options.
+        const populated = q.options.filter((opt) => opt.text.trim().length > 0)
+        if (populated.length < 2) {
+          return `Question ${n}: add at least two answer options.`
+        }
+        if (q.correct.length === 0) {
+          return `Question ${n}: mark a correct answer.`
+        }
+        const populatedIds = new Set(populated.map((opt) => opt.id))
+        if (q.correct.some((id) => !populatedIds.has(id))) {
+          return `Question ${n}: the correct answer needs option text.`
         }
         break
       }

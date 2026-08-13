@@ -3,6 +3,7 @@
 import { Check } from 'lucide-react'
 import { typeMeta, type PublicQuestion } from '@/lib/store'
 import { TYPE_ICON } from '@/components/question-icons'
+import { AutosizeTextarea } from '@/components/autosize-textarea'
 
 const inputCls =
   'w-full rounded-[10px] border border-border bg-background px-3 py-2.5 text-sm text-foreground outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/20'
@@ -111,7 +112,7 @@ export function QuestionTaker({
           : null}
 
         {question.type === 'identification' ? (
-          <input
+          <AutosizeTextarea
             value={typeof answer === 'string' ? answer : ''}
             onChange={(e) => onChange(e.target.value)}
             placeholder="Type your answer…"
@@ -124,11 +125,11 @@ export function QuestionTaker({
             {Array.from({ length: question.blankCount }).map((_, bi) => {
               const arr = Array.isArray(answer) ? (answer as string[]) : []
               return (
-                <label key={bi} className="flex items-center gap-2">
-                  <span className="font-mono text-xs text-muted-foreground">
+                <label key={bi} className="flex items-start gap-2">
+                  <span className="mt-2 font-mono text-xs text-muted-foreground">
                     #{bi + 1}
                   </span>
-                  <input
+                  <AutosizeTextarea
                     value={arr[bi] ?? ''}
                     onChange={(e) => {
                       const next = [...arr]
@@ -149,11 +150,11 @@ export function QuestionTaker({
             {Array.from({ length: question.answerCount }).map((_, ai) => {
               const arr = Array.isArray(answer) ? (answer as string[]) : []
               return (
-                <label key={ai} className="flex items-center gap-2">
-                  <span className="font-mono text-xs text-muted-foreground">
+                <label key={ai} className="flex items-start gap-2">
+                  <span className="mt-2 font-mono text-xs text-muted-foreground">
                     {ai + 1}.
                   </span>
-                  <input
+                  <AutosizeTextarea
                     value={arr[ai] ?? ''}
                     onChange={(e) => {
                       const next = [...arr]
@@ -179,12 +180,12 @@ export function QuestionTaker({
 
         {question.type === 'essay' ? (
           <div className="flex flex-col gap-1.5">
-            <textarea
+            <AutosizeTextarea
               value={typeof answer === 'string' ? answer : ''}
               onChange={(e) => onChange(e.target.value)}
               placeholder="Write your response…"
               rows={5}
-              className={`${inputCls} resize-y`}
+              className={inputCls}
             />
             <span className="text-xs text-muted-foreground">
               Graded by hand after the test closes.

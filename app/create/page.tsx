@@ -9,6 +9,7 @@ import { TypePicker } from '@/components/type-picker'
 import { QuestionEditor } from '@/components/question-editor'
 import { BankDialog } from '@/components/bank-dialog'
 import { PreviewDialog } from '@/components/preview-dialog'
+import { AutosizeTextarea } from '@/components/autosize-textarea'
 import {
   createTest,
   updateTest,
@@ -323,7 +324,7 @@ function CreateEditor() {
         <section className="mb-6 flex flex-col gap-5 rounded-[16px] border border-border bg-card p-4 shadow-soft sm:p-6">
           <label className="flex flex-col gap-2">
             <span className="text-sm font-medium text-foreground">Test title</span>
-            <input
+            <AutosizeTextarea
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder="e.g. Cell Biology — Unit 4"

@@ -13,6 +13,7 @@ import {
   type TrueFalseQ,
 } from '@/lib/store'
 import { TYPE_ICON } from '@/components/question-icons'
+import { AutosizeTextarea } from '@/components/autosize-textarea'
 
 const inputCls =
   'w-full rounded-[10px] border border-border bg-background px-3 py-2 text-sm text-foreground outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/20'
@@ -130,7 +131,7 @@ export function QuestionEditor({
             />
           </label>
         </div>
-        <input
+        <AutosizeTextarea
           value={question.explanation ?? ''}
           onChange={(e) => onChange({ ...question, explanation: e.target.value })}
           placeholder="Optional: why the answer is correct (shown after grading)"
@@ -173,7 +174,7 @@ function PromptField({
   }
 
   return (
-    <input
+    <AutosizeTextarea
       value={question.prompt}
       onChange={(e) => handleChange(e.target.value)}
       placeholder={placeholder}
@@ -257,13 +258,13 @@ function MultipleChoiceBody({
       {q.options.map((opt, i) => {
         const correct = q.correct.includes(opt.id)
         return (
-          <div key={opt.id} className="flex items-center gap-2">
+          <div key={opt.id} className="flex items-start gap-2">
             <button
               type="button"
               onClick={() => toggleCorrect(i)}
               aria-label={`Mark option ${i + 1} correct`}
               aria-pressed={correct}
-              className={`flex size-6 shrink-0 items-center justify-center border transition-colors ${
+              className={`mt-[3px] flex size-6 shrink-0 items-center justify-center border transition-colors ${
                 q.multiple ? 'rounded-[6px]' : 'rounded-full'
               } ${
                 correct
@@ -273,7 +274,7 @@ function MultipleChoiceBody({
             >
               <Check className="size-3.5" aria-hidden />
             </button>
-            <input
+            <AutosizeTextarea
               value={opt.text}
               onChange={(e) => setOption(i, e.target.value)}
               placeholder={`Option ${i + 1}`}
@@ -284,7 +285,7 @@ function MultipleChoiceBody({
                 type="button"
                 onClick={() => removeOption(i)}
                 aria-label={`Remove option ${i + 1}`}
-                className="text-muted-foreground transition-colors hover:text-destructive"
+                className="mt-2 shrink-0 text-muted-foreground transition-colors hover:text-destructive"
               >
                 <Trash2 className="size-4" aria-hidden />
               </button>
@@ -346,13 +347,13 @@ function IdentificationBody({
 }) {
   return (
     <div className="flex flex-col gap-2">
-      <input
+      <AutosizeTextarea
         value={q.answer}
         onChange={(e) => patch({ answer: e.target.value })}
         placeholder="Correct answer"
         className={inputCls}
       />
-      <input
+      <AutosizeTextarea
         value={q.alternates.join(', ')}
         onChange={(e) =>
           patch({
@@ -393,16 +394,16 @@ function MatchingBody({
       {q.pairs.map((p) => (
         <div
           key={p.id}
-          className="flex items-center gap-2 rounded-[12px] border border-border bg-background/60 p-2 sm:grid sm:grid-cols-[1fr_1fr_auto] sm:rounded-none sm:border-0 sm:bg-transparent sm:p-0"
+          className="flex items-start gap-2 rounded-[12px] border border-border bg-background/60 p-2 sm:grid sm:grid-cols-[1fr_1fr_auto] sm:items-start sm:rounded-none sm:border-0 sm:bg-transparent sm:p-0"
         >
           <div className="grid flex-1 grid-cols-1 gap-2 sm:contents sm:grid-cols-2">
-            <input
+            <AutosizeTextarea
               value={p.left}
               onChange={(e) => setPair(p.id, 'left', e.target.value)}
               placeholder="Term"
               className={inputCls}
             />
-            <input
+            <AutosizeTextarea
               value={p.right}
               onChange={(e) => setPair(p.id, 'right', e.target.value)}
               placeholder="Definition"
@@ -414,7 +415,7 @@ function MatchingBody({
               type="button"
               onClick={() => patch({ pairs: q.pairs.filter((x) => x.id !== p.id) })}
               aria-label="Remove pair"
-              className="shrink-0 p-1 text-muted-foreground transition-colors hover:text-destructive"
+              className="mt-2 shrink-0 p-1 text-muted-foreground transition-colors hover:text-destructive"
             >
               <Trash2 className="size-4" aria-hidden />
             </button>
@@ -453,11 +454,11 @@ function FillBlankBody({
         Add accepted answers for each.
       </span>
       {q.blanks.map((b, i) => (
-        <div key={i} className="flex items-center gap-2">
-          <span className="font-mono text-xs text-muted-foreground">
+        <div key={i} className="flex items-start gap-2">
+          <span className="mt-2 font-mono text-xs text-muted-foreground">
             #{i + 1}
           </span>
-          <input
+          <AutosizeTextarea
             value={b.answers.join(', ')}
             onChange={(e) =>
               patch({
@@ -506,11 +507,11 @@ function EnumerationBody({
         Require answers in order
       </label>
       {q.answers.map((a, i) => (
-        <div key={i} className="flex items-center gap-2">
-          <span className="font-mono text-xs text-muted-foreground">
+        <div key={i} className="flex items-start gap-2">
+          <span className="mt-2 font-mono text-xs text-muted-foreground">
             {i + 1}.
           </span>
-          <input
+          <AutosizeTextarea
             value={a}
             onChange={(e) => setAnswer(i, e.target.value)}
             placeholder={`Accepted answer ${i + 1}`}
@@ -523,12 +524,12 @@ function EnumerationBody({
                 patch({ answers: q.answers.filter((_, idx) => idx !== i) })
               }
               aria-label={`Remove answer ${i + 1}`}
-              className="text-muted-foreground transition-colors hover:text-destructive"
+              className="mt-2 shrink-0 text-muted-foreground transition-colors hover:text-destructive"
             >
               <Trash2 className="size-4" aria-hidden />
             </button>
           ) : (
-            <span className="size-4" />
+            <span className="mt-2 size-4 shrink-0" />
           )}
         </div>
       ))}
