@@ -1,3 +1,5 @@
+// FILE: lib/test-import.ts
+
 import {
   LIMITS,
   makeId,
@@ -377,9 +379,13 @@ export function parseTestStudioImport(text: string): ImportResult {
   }
 }
 
-export const DEFAULT_AI_IMPORT_PROMPT = `Create a test for my TestStudio application.
+// This is the full instruction template sent to the AI. It intentionally stays
+// out of the UI — only the user's own request text is shown on screen. The
+// {{USER_REQUEST}} marker is where the user's typed text gets inserted before
+// the combined prompt is copied to the clipboard.
+const AI_IMPORT_PROMPT_TEMPLATE = `Create a test for my TestStudio application.
 
-Return ONLY one valid JSON object that follows the TestStudio import format below. Do not return Markdown, code fences, comments, trailing commas, or explanations before or after the JSON.
+Return ONLY one valid JSON object a JSON file so I can download it that follows the TestStudio import format below. Do not return Markdown, code fences, comments, trailing commas, or explanations before or after the JSON.
 
 Use this top-level structure exactly:
 {
@@ -436,4 +442,19 @@ For "essay_short_answer", do not provide an answer key because TestStudio grades
 Do not add unsupported properties. Do not use visible A/B/C/D labels as the permanent answer identity. Preserve labels such as "A. Apple" only when those labels are intentionally part of the option text. Use double quotes for all JSON keys and strings.
 
 MY TEST REQUEST:
-Create a 10-item multiple choice test about the topic I provide. Replace this request with my preferred title, description, subject, topic, difficulty, language, question counts, source material, and instructions before generating the JSON.`
+{{USER_REQUEST}}`
+
+// Shown as placeholder text inside the request textarea so the user knows what
+// kind of details to type (title, subject, topic, difficulty, language,
+// question counts, source material, instructions).
+export const AI_IMPORT_REQUEST_PLACEHOLDER = `Create a 10-item multiple choice test about the topic I provide. Replace this request with my preferred title, description, subject, topic, difficulty, language, question counts, source material, and instructions before generating the JSON.`
+
+// Combines the user's own request with the full TestStudio JSON format
+// instructions. The full template is never rendered anywhere in the UI - it
+// only ever reaches the user inside the text that gets copied to their
+// clipboard.
+export function buildAiImportPrompt(userRequest: string): string {
+  const trimmedRequest = userRequest.trim()
+  const requestText = trimmedRequest.length > 0 ? trimmedRequest : AI_IMPORT_REQUEST_PLACEHOLDER
+  return AI_IMPORT_PROMPT_TEMPLATE.replace('{{USER_REQUEST}}', requestText)
+}

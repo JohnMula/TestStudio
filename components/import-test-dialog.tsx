@@ -1,11 +1,14 @@
+// FILE: components/import-test-dialog.tsx
+
 'use client'
 
 import { useRef, useState, type ChangeEvent, type DragEvent } from 'react'
 import { Check, Clipboard, FileJson, Upload, X } from 'lucide-react'
 import { QUESTION_TYPES } from '@/lib/types'
 import {
-  DEFAULT_AI_IMPORT_PROMPT,
+  AI_IMPORT_REQUEST_PLACEHOLDER,
   MAX_JSON_IMPORT_BYTES,
+  buildAiImportPrompt,
   parseTestStudioImport,
   type ImportedTest,
 } from '@/lib/test-import'
@@ -38,8 +41,7 @@ export function ImportTestDialog({
   onImport: (test: ImportedTest) => Promise<string | null>
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const [prompt, setPrompt] = useState(DEFAULT_AI_IMPORT_PROMPT)
-  const [showMore, setShowMore] = useState(false)
+  const [userRequest, setUserRequest] = useState('')
   const [isDragging, setIsDragging] = useState(false)
   const [selectedTest, setSelectedTest] = useState<ImportedTest | null>(null)
   const [fileName, setFileName] = useState<string | null>(null)
@@ -51,7 +53,7 @@ export function ImportTestDialog({
 
   async function copyPrompt() {
     try {
-      await navigator.clipboard.writeText(prompt)
+      await navigator.clipboard.writeText(buildAiImportPrompt(userRequest))
       setCopyState('copied')
       window.setTimeout(() => setCopyState('idle'), 1800)
     } catch {
@@ -171,11 +173,19 @@ export function ImportTestDialog({
 
         <section className="flex flex-col gap-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <span className="text-sm font-medium text-foreground">AI prompt</span>
+            <label htmlFor="ai-import-request" className="text-sm font-medium text-foreground">
+              Put your prompt here
+            </label>
             <button
               type="button"
               onClick={() => void copyPrompt()}
-              className="flex items-center gap-1.5 rounded-[10px] border border-border bg-card px-3 py-2 text-sm font-medium text-foreground shadow-soft transition-colors hover:bg-secondary"
+              disabled={userRequest.trim().length === 0}
+              title={
+                userRequest.trim().length === 0
+                  ? 'Describe your test above first'
+                  : 'Copy the full AI prompt to your clipboard'
+              }
+              className="flex items-center gap-1.5 rounded-[10px] border border-border bg-card px-3 py-2 text-sm font-medium text-foreground shadow-soft transition-colors hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-40"
             >
               {copyState === 'copied' ? (
                 <Check className="size-3.5 text-primary" aria-hidden />
@@ -190,22 +200,19 @@ export function ImportTestDialog({
             </button>
           </div>
           <p className="text-xs text-muted-foreground text-pretty">
-            Edit the request or any part of this prompt before copying it into ChatGPT, Gemini, Claude, or another AI.
+            Describe the test you want — title, subject, topic, difficulty, language, question counts, source
+            material, and any instructions. Copying combines this with TestStudio's JSON format instructions, ready
+            to paste into ChatGPT, Gemini, Claude, or another AI.
           </p>
           <textarea
-            value={prompt}
-            onChange={(event) => setPrompt(event.target.value)}
-            rows={showMore ? 24 : 7}
-            aria-label="Editable AI prompt"
+            id="ai-import-request"
+            value={userRequest}
+            onChange={(event) => setUserRequest(event.target.value)}
+            rows={7}
+            placeholder={AI_IMPORT_REQUEST_PLACEHOLDER}
+            aria-label="Your test request"
             className={`${textareaClass} resize-y overflow-y-auto`}
           />
-          <button
-            type="button"
-            onClick={() => setShowMore((value) => !value)}
-            className="self-start text-sm font-medium text-primary transition-opacity hover:opacity-80"
-          >
-            {showMore ? 'Show less' : 'Show more'}
-          </button>
         </section>
 
         <section className="flex flex-col gap-3 border-t border-border pt-5">
