@@ -331,6 +331,8 @@ function CreateEditor() {
             />
           </label>
 
+          <TypePicker value={questionType} onChange={setQuestionType} />
+
           <div className="flex flex-col gap-2">
             <span className="text-sm font-medium text-foreground">Time limit</span>
             <div className="flex items-center gap-1 self-start rounded-[10px] border border-border bg-background p-1">
@@ -461,7 +463,6 @@ function CreateEditor() {
         </div>
 
         <div className="mt-4 flex flex-wrap items-end gap-3">
-          <TypePicker value={questionType} onChange={setQuestionType} />
           <button
             type="button"
             onClick={addQuestion}
