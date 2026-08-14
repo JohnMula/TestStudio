@@ -1,17 +1,23 @@
 import 'server-only'
 
 /* Cloudflare Turnstile verification for public quiz submission.
-   Production fails closed: a missing key, invalid token, verification
-   failure, or Cloudflare timeout rejects the submission. Local development
-   may omit the keys. */
+   A configured key (TURNSTILE_SECRET_KEY + NEXT_PUBLIC_TURNSTILE_SITE_KEY,
+   see .env.example) fails closed: an invalid token, verification failure,
+   or Cloudflare timeout rejects the submission. Until the keys are set,
+   this is a compatibility fallback — it allows submissions through (like
+   local development always has) rather than locking every test-taker out,
+   but logs loudly so the missing setup step doesn't go unnoticed. */
 export async function verifyTurnstileToken(
   token: string,
   ip: string,
 ): Promise<boolean> {
   const secret = process.env.TURNSTILE_SECRET_KEY
   if (!secret) {
-    console.error('TURNSTILE_SECRET_KEY is not set.')
-    return process.env.NODE_ENV !== 'production'
+    console.error(
+      '[turnstile] TURNSTILE_SECRET_KEY is not set — allowing test submissions through unverified. ' +
+        'Set TURNSTILE_SECRET_KEY and NEXT_PUBLIC_TURNSTILE_SITE_KEY to turn verification on.',
+    )
+    return true
   }
   if (!token || token.length > 2048) return false
 
@@ -34,9 +40,11 @@ export async function verifyTurnstileToken(
       .split(',')
       .map((hostname) => hostname.trim().toLowerCase())
       .filter(Boolean)
-    if (process.env.NODE_ENV === 'production' && permittedHostnames.length === 0) {
-      console.error('TURNSTILE_HOSTNAMES is not set.')
-      return false
+    if (permittedHostnames.length === 0) {
+      console.error(
+        '[turnstile] TURNSTILE_HOSTNAMES is not set — skipping the hostname check. ' +
+          'Set it to a comma-separated allowlist of your production domain(s) to turn this check on.',
+      )
     }
     return (
       permittedHostnames.length === 0 ||

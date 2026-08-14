@@ -86,6 +86,12 @@ function CreateEditor() {
   const [publishError, setPublishError] = useState<string | null>(null)
   const draftIdRef = useRef<string | null>(null)
   const discardDraftRef = useRef(false)
+  // Holds the most recent unsaved draft snapshot and whether it still needs
+  // to be written somewhere. The debounce effect below updates these on every
+  // change; the flush-on-exit effects read them so a navigation or tab close
+  // that happens before the 1.2s debounce fires doesn't lose the edit.
+  const latestDraftRef = useRef<DraftData | null>(null)
+  const pendingSaveRef = useRef(false)
 
   /* ---------- autosave: load once, then persist on change ---------- */
   useEffect(() => {
@@ -209,24 +215,15 @@ function CreateEditor() {
     }
   }, [editId, requestedDraftId])
 
-  useEffect(() => {
-    if (!loaded || isEditing) return
-    const t = setTimeout(() => {
-      const draft = {
-        title,
-        description,
-        code: customCode,
-        timeLimit,
-        shuffle,
-        shuffleChoices,
-        singleAttempt,
-        questionType,
-        questions,
-        opensAt: opensAt ? new Date(opensAt).getTime() : null,
-        closesAt: closesAt ? new Date(closesAt).getTime() : null,
-      }
-      if (!draft.title.trim() && draft.questions.length === 0) return
-
+  // Local save + best-effort server save for one draft snapshot. Used both by
+  // the normal debounced autosave and by the exit-time flush below, so an
+  // edit made right before navigating away is saved the same way an edit
+  // that sits untouched for 1.2s is. `silent` skips the visible
+  // saving/saved UI state, since it's used when the component is on its way
+  // out and updating state would be pointless (or, mid-unmount, a no-op).
+  const commitDraft = useCallback(
+    (draft: DraftData, silent = false) => {
+      pendingSaveRef.current = false
       // Keep a browser cache first, then synchronise the same stable draft id
       // to Supabase. A temporary connection problem never discards edits.
       if (!draftIdRef.current && typeof crypto !== 'undefined') {
@@ -236,10 +233,14 @@ function CreateEditor() {
         ...draft,
         ...(draftIdRef.current ? { id: draftIdRef.current } : {}),
       })
-      setSavedAt(Date.now())
-      setAutosaveState('saving')
-      setAutosaveError(null)
-      void saveServerDraft(draftIdRef.current, draft)
+      if (!silent) {
+        setSavedAt(Date.now())
+        setAutosaveState('saving')
+        setAutosaveError(null)
+      }
+      const request = saveServerDraft(draftIdRef.current, draft)
+      if (silent) return request
+      return request
         .then((result) => {
           if (result.ok) {
             draftIdRef.current = result.draft.id
@@ -266,6 +267,31 @@ function CreateEditor() {
             'Unable to save this draft. Your latest changes remain on this device.',
           )
         })
+    },
+    [],
+  )
+
+  useEffect(() => {
+    if (!loaded || isEditing) return
+    const draft: DraftData = {
+      title,
+      description,
+      code: customCode,
+      timeLimit,
+      shuffle,
+      shuffleChoices,
+      singleAttempt,
+      questionType,
+      questions,
+      opensAt: opensAt ? new Date(opensAt).getTime() : null,
+      closesAt: closesAt ? new Date(closesAt).getTime() : null,
+    }
+    latestDraftRef.current = draft
+    if (!draft.title.trim() && draft.questions.length === 0) return
+    pendingSaveRef.current = true
+
+    const t = setTimeout(() => {
+      void commitDraft(draft)
     }, 1200)
     return () => clearTimeout(t)
   }, [
@@ -282,7 +308,43 @@ function CreateEditor() {
     opensAt,
     closesAt,
     isEditing,
+    commitDraft,
   ])
+
+  // Flush-on-exit: if the debounce above hasn't fired yet (e.g. the user
+  // navigates within the app less than 1.2s after their last edit), save
+  // whatever the last snapshot was instead of letting the pending timeout
+  // get cancelled and the edit silently lost. Skipped once a publish has
+  // already claimed the draft (discardDraftRef), so this can't resurrect a
+  // draft that was just intentionally deleted.
+  useEffect(() => {
+    return () => {
+      if (pendingSaveRef.current && latestDraftRef.current && !discardDraftRef.current) {
+        commitDraft(latestDraftRef.current, true)
+      }
+    }
+  }, [commitDraft])
+
+  // Same flush for an actual tab close/refresh/back-to-home-screen, which
+  // doesn't reliably run the React unmount cleanup above. The server request
+  // may or may not complete in time, but the local save always does, so the
+  // in-progress work is never lost on this device.
+  useEffect(() => {
+    function flushOnExit() {
+      if (pendingSaveRef.current && latestDraftRef.current && !discardDraftRef.current) {
+        commitDraft(latestDraftRef.current, true)
+      }
+    }
+    function onVisibilityChange() {
+      if (document.visibilityState === 'hidden') flushOnExit()
+    }
+    window.addEventListener('pagehide', flushOnExit)
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    return () => {
+      window.removeEventListener('pagehide', flushOnExit)
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+    }
+  }, [commitDraft])
 
   /* ---------- question mutations ---------- */
   function addQuestion() {

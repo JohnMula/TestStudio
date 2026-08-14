@@ -82,11 +82,7 @@ export function TurnstileWidget({
   }, [siteKey])
 
   if (!siteKey) {
-    return process.env.NODE_ENV === 'production' ? (
-      <p className="text-xs text-destructive">
-        Verification is unavailable. Please contact the test owner.
-      </p>
-    ) : null
+    return null
   }
 
   return (

@@ -42,9 +42,7 @@ export default function TakeTestPage() {
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [captchaToken, setCaptchaToken] = useState('')
-  const turnstileConfigured =
-    process.env.NODE_ENV === 'production' ||
-    Boolean(process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY)
+  const turnstileConfigured = Boolean(process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY)
   const deviceId = useMemo(() => getDeviceId(), [])
 
   const order = useMemo(() => {

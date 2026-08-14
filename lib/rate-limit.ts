@@ -43,16 +43,20 @@ async function checkRateLimit(
 ): Promise<RateLimitResult> {
   const secret = process.env.RATE_LIMIT_SECRET
   if (!secret) {
-    console.error('RATE_LIMIT_SECRET is not set.')
-    if (process.env.NODE_ENV === 'production') {
-      return {
-        allowed: false,
-        error: 'Requests are temporarily unavailable. Please try again shortly.',
-      }
-    }
+    // Compatibility fallback: the DB-backed limiter needs RATE_LIMIT_SECRET
+    // set (see .env.example) plus supabase/feature13_security_hardening.sql
+    // run in the Supabase SQL editor before it can actually check anything.
+    // Until that setup step is done, don't lock every visitor out of
+    // creating tests, saving drafts, and taking tests — allow the request
+    // through, but log loudly so the missing setup step doesn't go unnoticed.
+    console.error(
+      `[rate-limit] RATE_LIMIT_SECRET is not set — allowing "${scope}" through unlimited. ` +
+        'Set RATE_LIMIT_SECRET and run supabase/feature13_security_hardening.sql to turn real limiting on.',
+    )
+    return { allowed: true }
   }
   const key = `${scope}:${createHash('sha256')
-    .update(`${secret ?? 'development-only'}|${subject}`)
+    .update(`${secret}|${subject}`)
     .digest('hex')}`
   const db = createServiceClient()
   const { data, error } = await db.rpc('check_rate_limit', {
@@ -62,17 +66,13 @@ async function checkRateLimit(
   })
 
   if (error) {
-    // Fails OPEN on infra errors (e.g. supabase/rate_limits.sql hasn't
-    // been run yet) so a setup gap doesn't take the whole app down —
-    // but this is loud in the server logs, since a silently-broken
-    // limiter is exactly the "zero protection" state we're fixing.
-    console.error('Rate limit check failed:', error.message)
-    if (process.env.NODE_ENV === 'production') {
-      return {
-        allowed: false,
-        error: 'Requests are temporarily unavailable. Please try again shortly.',
-      }
-    }
+    // Fails OPEN on infra errors (e.g. feature13_security_hardening.sql
+    // hasn't been run yet, so public.check_rate_limit doesn't exist) so a
+    // setup gap doesn't take the whole app down for real users — but this
+    // is loud in the server logs, since a silently-broken limiter is
+    // exactly the "zero protection" state we want visible, not disguised
+    // as a wall of errors for everyone.
+    console.error(`[rate-limit] check failed for "${scope}", allowing the request through:`, error.message)
     return { allowed: true }
   }
 
