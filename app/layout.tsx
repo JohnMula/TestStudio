@@ -1,5 +1,6 @@
 import { Analytics } from '@vercel/analytics/next'
 import type { Metadata, Viewport } from 'next'
+import { headers } from 'next/headers'
 import { Sora, Manrope, IBM_Plex_Mono } from 'next/font/google'
 import './globals.css'
 
@@ -60,11 +61,21 @@ export const viewport: Viewport = {
   themeColor: '#f7f3ec',
 }
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode
 }>) {
+  // Reading a dynamic API here is what makes this work: it opts every
+  // page under this layout into per-request rendering, so the nonce
+  // baked into the HTML always matches the fresh one proxy.ts puts on
+  // that same request's CSP header. Next.js then automatically stamps
+  // its own framework/hydration scripts with this nonce, and — because
+  // the CSP uses 'strict-dynamic' — that trust propagates to anything
+  // those scripts load at runtime (Turnstile, Vercel Analytics), so
+  // neither of those needs to be touched directly.
+  await headers()
+
   return (
     <html
       lang="en"
