@@ -2,12 +2,11 @@
 
 import Link from 'next/link'
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
-import { Suspense, useEffect, useRef, useState } from 'react'
+import { Suspense, useEffect, useState } from 'react'
 import {
   ArrowLeft,
   Copy,
   Check,
-  AlertCircle,
   Trash2,
   Users,
   ExternalLink,
@@ -17,9 +16,6 @@ import {
   Calendar,
 } from 'lucide-react'
 import { SiteHeader } from '@/components/site-header'
-import {
-  TestDetailBodySkeleton,
-} from '@/components/skeletons/test-detail-skeleton'
 import { TicketCard } from '@/components/ticket-card'
 import {
   useTest,
@@ -43,35 +39,6 @@ function timeAgo(ts: number): string {
   if (hrs < 24) return `${hrs}h ago`
   const days = Math.round(hrs / 24)
   return `${days}d ago`
-}
-
-/* Fallback for when the async Clipboard API is missing or refuses to
-   write (insecure/non-HTTPS origin, an iframe without clipboard-write
-   permission, or the tab briefly not having document focus). Selects
-   the text in a hidden textarea and uses the older execCommand path,
-   which has much looser preconditions than navigator.clipboard. */
-function legacyCopy(text: string): boolean {
-  const textarea = document.createElement('textarea')
-  textarea.value = text
-  textarea.setAttribute('readonly', '')
-  textarea.style.position = 'fixed'
-  textarea.style.top = '0'
-  textarea.style.left = '0'
-  textarea.style.opacity = '0'
-  textarea.style.pointerEvents = 'none'
-  document.body.appendChild(textarea)
-  textarea.focus()
-  textarea.select()
-  textarea.setSelectionRange(0, text.length)
-
-  let ok = false
-  try {
-    ok = document.execCommand('copy')
-  } catch {
-    ok = false
-  }
-  document.body.removeChild(textarea)
-  return ok
 }
 
 function download(filename: string, content: string, type: string) {
@@ -130,10 +97,7 @@ function TestDetail() {
   const search = useSearchParams()
   const router = useRouter()
   const { test, isLoading } = useTest(params.id)
-  const [copyState, setCopyState] = useState<'idle' | 'copied' | 'error'>(
-    'idle',
-  )
-  const copyResetRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [copied, setCopied] = useState(false)
   const [expanded, setExpanded] = useState<string | null>(null)
   const [origin, setOrigin] = useState('')
   const [confirmDelete, setConfirmDelete] = useState(false)
@@ -144,19 +108,25 @@ function TestDetail() {
     setOrigin(window.location.origin)
   }, [])
 
-  // Clear any pending "flash back to idle" timer on unmount so we never
-  // call setState on an unmounted component.
-  useEffect(() => {
-    return () => {
-      if (copyResetRef.current) clearTimeout(copyResetRef.current)
-    }
-  }, [])
-
   const justCreated = search.get('created') === '1'
   const justUpdated = search.get('updated') === '1'
 
   if (isLoading) {
-    return <TestDetailBodySkeleton />
+    return (
+      <div className="mx-auto flex max-w-4xl flex-col gap-6 px-4 py-8 sm:px-6 sm:py-10">
+        <div className="flex flex-col gap-2">
+          <div className="h-6 w-2/3 animate-pulse rounded-md bg-secondary" />
+          <div className="h-4 w-1/3 animate-pulse rounded-md bg-secondary" />
+        </div>
+        <div className="grid gap-8 md:grid-cols-[minmax(0,1fr)_auto]">
+          <div className="flex flex-col gap-6">
+            <div className="h-28 animate-pulse rounded-[16px] border border-border bg-card shadow-soft" />
+            <div className="h-64 animate-pulse rounded-[16px] border border-border bg-card shadow-soft" />
+          </div>
+          <div className="h-72 w-full animate-pulse rounded-[16px] border border-border bg-card shadow-soft md:w-96" />
+        </div>
+      </div>
+    )
   }
 
   if (!test) {
@@ -192,34 +162,11 @@ function TestDetail() {
         )
       : null
 
-  function flashCopyState(state: 'copied' | 'error') {
-    if (copyResetRef.current) clearTimeout(copyResetRef.current)
-    setCopyState(state)
-    copyResetRef.current = setTimeout(() => setCopyState('idle'), 1500)
-  }
-
-  async function copyCode() {
-    if (!test) return
-    const code = test.code
-    let success = false
-
-    if (navigator.clipboard?.writeText) {
-      try {
-        await navigator.clipboard.writeText(code)
-        success = true
-      } catch {
-        // Permission denied, insecure context, or the document losing
-        // focus before the write resolved — fall through to the
-        // legacy path instead of leaving this unhandled.
-        success = false
-      }
-    }
-
-    if (!success) {
-      success = legacyCopy(code)
-    }
-
-    flashCopyState(success ? 'copied' : 'error')
+  function copyCode() {
+    navigator.clipboard?.writeText(test!.code).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    })
   }
 
   async function handleDelete() {
@@ -288,14 +235,11 @@ function TestDetail() {
                 <button
                   type="button"
                   onClick={copyCode}
-                  aria-label="Copy test code"
                   className="flex items-center gap-2 rounded-[10px] border border-border bg-background px-4 py-2 font-mono text-lg text-foreground transition-colors hover:bg-secondary"
                 >
                   {test.code}
-                  {copyState === 'copied' ? (
+                  {copied ? (
                     <Check className="size-4 text-primary" aria-hidden />
-                  ) : copyState === 'error' ? (
-                    <AlertCircle className="size-4 text-destructive" aria-hidden />
                   ) : (
                     <Copy className="size-4 text-muted-foreground" aria-hidden />
                   )}
@@ -308,17 +252,10 @@ function TestDetail() {
                   Preview as taker
                 </Link>
               </div>
-              <p
-                aria-live="polite"
-                className={`text-xs ${
-                  copyState === 'error' ? 'text-destructive' : 'text-muted-foreground'
-                }`}
-              >
-                {copyState === 'copied'
+              <p className="text-xs text-muted-foreground">
+                {copied
                   ? 'Copied to clipboard.'
-                  : copyState === 'error'
-                    ? "Couldn't copy automatically — select the code and copy it manually."
-                    : 'Anyone with this code can take the test — or scan the QR code on the ticket.'}
+                  : 'Anyone with this code can take the test — or scan the QR code on the ticket.'}
               </p>
             </div>
           </section>
@@ -487,28 +424,9 @@ function ResponseRow({
 }) {
   const earned = responseEarned(test, response)
   const possible = responsePossible(test, response)
-  const [scoreInputs, setScoreInputs] = useState<Record<string, string>>({})
-  const [savingQuestionId, setSavingQuestionId] = useState<string | null>(null)
-  const [gradingError, setGradingError] = useState<string | null>(null)
   const essays = (response.testSnapshot?.questions ?? test.questions).filter(
     (q) => q.type === 'essay',
   )
-
-  async function saveScore(questionId: string, maxPoints: number) {
-    const typed = scoreInputs[questionId]
-    if (typed === undefined) return
-    const points = Math.max(0, Math.min(maxPoints, Number(typed) || 0))
-    setScoreInputs((current) => ({ ...current, [questionId]: String(points) }))
-    setSavingQuestionId(questionId)
-    setGradingError(null)
-    try {
-      await gradeEssay(test.id, response.id, questionId, points)
-    } catch {
-      setGradingError('Unable to save this score. Please try again.')
-    } finally {
-      setSavingQuestionId(null)
-    }
-  }
 
   return (
     <li className="border-t border-border">
@@ -549,18 +467,9 @@ function ResponseRow({
 
       {expanded && hasEssays ? (
         <div className="flex flex-col gap-4 bg-secondary/40 px-4 py-4 sm:px-6">
-          {gradingError ? (
-            <p
-              role="alert"
-              className="rounded-[10px] border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive"
-            >
-              {gradingError}
-            </p>
-          ) : null}
           {essays.map((q) => {
             const text = response.answers[q.id]
             const awarded = response.manualScores[q.id]
-            const scoreInput = scoreInputs[q.id] ?? (awarded === undefined ? '' : String(awarded))
             return (
               <div key={q.id} className="flex flex-col gap-2">
                 <span className="text-sm font-medium text-foreground">
@@ -578,26 +487,24 @@ function ResponseRow({
                       type="number"
                       min={0}
                       max={q.points}
-                      value={scoreInput}
+                      value={awarded ?? ''}
                       placeholder="0"
-                      disabled={savingQuestionId === q.id}
-                      onChange={(event) =>
-                        setScoreInputs((current) => ({
-                          ...current,
-                          [q.id]: event.target.value,
-                        }))
+                      onChange={(e) =>
+                        gradeEssay(
+                          test.id,
+                          response.id,
+                          q.id,
+                          Math.max(
+                            0,
+                            Math.min(q.points, Number(e.target.value) || 0),
+                          ),
+                        )
                       }
-                      onBlur={() => void saveScore(q.id, q.points)}
-                      onKeyDown={(event) => {
-                        if (event.key === 'Enter') event.currentTarget.blur()
-                      }}
-                      className="w-16 rounded-[8px] border border-border bg-background px-2 py-1 font-mono text-sm text-foreground outline-none focus:border-primary disabled:cursor-wait disabled:opacity-60"
+                      className="w-16 rounded-[8px] border border-border bg-background px-2 py-1 font-mono text-sm text-foreground outline-none focus:border-primary"
                     />
                     / {q.points} pts
                   </label>
-                  {savingQuestionId === q.id ? (
-                    <span className="text-xs text-muted-foreground">savingâ€¦</span>
-                  ) : awarded !== undefined ? (
+                  {awarded !== undefined ? (
                     <span className="flex items-center gap-1 text-xs text-primary">
                       <Check className="size-3.5" aria-hidden />
                       graded
@@ -628,7 +535,7 @@ export default function TestDetailPage() {
           </Link>
         }
       />
-      <Suspense fallback={<TestDetailBodySkeleton />}>
+      <Suspense fallback={null}>
         <TestDetail />
       </Suspense>
     </div>
