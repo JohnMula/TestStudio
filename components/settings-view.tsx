@@ -5,6 +5,38 @@ import type { ReactNode } from 'react'
 import { Check, Info } from 'lucide-react'
 import { SettingsBodySkeleton } from '@/components/skeletons/settings-skeleton'
 import { loadSettings, saveSettings, type AppSettings } from '@/lib/store'
+import { createClient } from '@/lib/supabase/client'
+
+/* Mirrors the isSignedIn check in components/auth-menu.tsx: a real
+   account, not the anonymous session every browser gets by default. */
+function useSignedIn(): boolean {
+  const [signedIn, setSignedIn] = useState(false)
+
+  useEffect(() => {
+    let active = true
+    let unsubscribe: (() => void) | undefined
+    try {
+      const supabase = createClient()
+      void supabase.auth.getSession().then(({ data }) => {
+        if (active) {
+          setSignedIn(Boolean(data.session?.user && !data.session.user.is_anonymous))
+        }
+      })
+      const { data } = supabase.auth.onAuthStateChange((_event, session) => {
+        if (active) setSignedIn(Boolean(session?.user && !session.user.is_anonymous))
+      })
+      unsubscribe = () => data.subscription.unsubscribe()
+    } catch {
+      // Supabase isn't configured — treat as signed out, same as AuthMenu does.
+    }
+    return () => {
+      active = false
+      unsubscribe?.()
+    }
+  }, [])
+
+  return signedIn
+}
 
 /* ---------- small primitives ---------- */
 
@@ -145,15 +177,24 @@ function Row({
        export — see app/test/[id]/page.tsx.
 
    Added:
-     - A plain note about this app having no accounts, since a
-       teacher can otherwise lose every test they made with zero
-       warning by clearing cookies. That's a real risk worth stating
-       plainly, not a toggle. */
+     - An accounts notice that reflects whichever is actually true
+       for this browser right now — signed in (synced to your
+       account) or not (this browser only, and a teacher can lose
+       every test they made with zero warning by clearing cookies).
+       It used to hardcode the "no accounts" case even after sign-in
+       shipped; now it checks the live session, the same way
+       AuthMenu does.
+
+   Also worth knowing: the "Export CSV" button on a test's page
+   only appears once that test has at least one response — nothing
+   to export before then. It's not broken if you don't see it on a
+   brand-new test. */
 
 const TIME_OPTIONS = ['Off', '15m', '30m', '60m'] as const
 type TimeOpt = (typeof TIME_OPTIONS)[number]
 
 export function SettingsView() {
+  const signedIn = useSignedIn()
   const [timeLimit, setTimeLimit] = useState<TimeOpt>('15m')
   const [shuffle, setShuffle] = useState(true)
   const [shuffleChoices, setShuffleChoices] = useState(true)
@@ -262,11 +303,23 @@ export function SettingsView() {
       <div className="flex items-start gap-3 rounded-[16px] border border-border bg-card p-4 shadow-soft sm:p-5">
         <Info className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden />
         <p className="text-xs leading-relaxed text-muted-foreground">
-          TestStudio doesn&apos;t use accounts — your tests, drafts, and
-          question bank are tied to this browser only. Clearing cookies or
-          site data, or switching browsers or devices, means losing access to
-          them with no way to recover them. Bookmark your dashboard link if
-          you want to come back later.
+          {signedIn ? (
+            <>
+              You&apos;re signed in — your tests, drafts, and attempt history
+              are tied to your account and stay available if you switch
+              browsers or devices. Your personal question bank is the one
+              exception: it&apos;s always local to this browser only, signed
+              in or not.
+            </>
+          ) : (
+            <>
+              You&apos;re not signed in, so your tests, drafts, and question
+              bank are tied to this browser only. Clearing cookies or site
+              data, or switching browsers or devices, means losing access to
+              them with no way to recover them. Sign in from the account menu
+              above to keep your tests and drafts safe and synced everywhere.
+            </>
+          )}
         </p>
       </div>
 

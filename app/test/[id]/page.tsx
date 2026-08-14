@@ -278,14 +278,20 @@ function TestDetail() {
                   </span>
                 ) : null}
                 {test.responses.length > 0 ? (
-                  <button
+                <button
                     type="button"
                     onClick={() => exportCsv(test)}
-                    className="flex items-center gap-1.5 rounded-[8px] border border-border bg-background px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-secondary"
+                    disabled={test.responses.length === 0}
+                    title={
+                      test.responses.length === 0
+                        ? 'No responses yet — nothing to export'
+                        : undefined
+                    }
+                    className="flex items-center gap-1.5 rounded-[8px] border border-border bg-background px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-background"
                   >
                     <Download className="size-3.5" aria-hidden />
                     Export CSV
-                  </button>
+                </button>
                 ) : null}
               </div>
             </div>

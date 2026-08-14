@@ -138,9 +138,10 @@ export async function gradeEssay(
 }
 
 /* ============================================================
-   Question bank — a per-device authoring aid. Because there are
-   no accounts, this stays in localStorage: it's the creator's
-   private library of reusable questions on this browser.
+   Question bank — a per-device authoring aid. Unlike tests and
+   drafts, this deliberately does NOT sync to an account — it
+   stays in localStorage as the creator's private library of
+   reusable questions on this browser, signed in or not.
    ============================================================ */
 
 const BANK_KEY = 'teststudio.bank.v1'
