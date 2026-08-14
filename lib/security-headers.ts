@@ -30,7 +30,7 @@ export function applySecurityHeaders(headers: Headers, nonce: string) {
   headers.set('Referrer-Policy', 'strict-origin-when-cross-origin')
   headers.set(
     'Permissions-Policy',
-    'accelerometer=(), camera=(), geolocation=(), gyroscope=(), microphone=(), payment=(), usb=()',
+    'accelerometer=(), camera=(self), geolocation=(), gyroscope=(), microphone=(), payment=(), usb=()',
   )
   headers.set('Cross-Origin-Opener-Policy', 'same-origin')
   headers.set('Cross-Origin-Resource-Policy', 'same-origin')
