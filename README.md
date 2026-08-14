@@ -52,7 +52,14 @@ cd teststudio
 pnpm install
 ```
 
-Apply the SQL migrations in the `supabase/` folder, in order, via the Supabase SQL Editor.
+Apply the SQL migrations in `supabase/` via the Supabase SQL Editor, **in this exact order** (the filenames don't sort into run order alphabetically, so don't just go by `ls`):
+
+1. `feature0_schema.sql` — base `tests` / `responses` tables and RLS
+2. `feature3_test_snapshots.sql`
+3. `feature9_shuffle_choices.sql`
+4. `feature10_11_drafts_attempt_history.sql`
+5. `feature12_test_descriptions.sql`
+6. `feature13_security_hardening.sql`
 
 Create a `.env.local` file with the following variables:
 
