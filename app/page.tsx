@@ -105,7 +105,7 @@ export default function LandingPage() {
           <span className="font-heading font-semibold text-foreground">
             TestStudio
           </span>
-          <span>Free, unlimited tests. No account needed to take one.</span>
+          <span>Free, unlimited tests. No account needed to take a test.</span>
         </div>
       </footer>
     </div>
