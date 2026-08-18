@@ -9,6 +9,8 @@ import { SiteHeader } from '@/components/site-header'
 import { LoginSkeleton } from '@/components/skeletons/login-skeleton'
 import { createClient } from '@/lib/supabase/client'
 
+// type AuthProvider = Extract<Provider, 'google' | 'facebook'>
+
 type AuthProvider = Extract<Provider, 'google'>
 
 function safeDestination(value: string | null): string {
@@ -156,6 +158,17 @@ function LoginForm() {
               </span>
               {provider === 'google' ? 'Connecting to Google…' : 'Continue with Google'}
             </button>
+            {/* <button
+              type="button"
+              onClick={() => void signInWith('facebook')}
+              disabled={provider !== null}
+              className="flex w-full items-center justify-center gap-3 rounded-[12px] border border-border bg-background px-4 py-3 text-sm font-medium text-foreground shadow-soft transition-colors hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <span className="flex size-5 items-center justify-center rounded-full bg-card font-heading text-sm font-semibold text-foreground shadow-soft" aria-hidden>
+                f
+              </span>
+              {provider === 'facebook' ? 'Connecting to Facebook…' : 'Continue with Facebook'}
+            </button> */}
           </div>
 
           <p className="text-center text-xs leading-relaxed text-muted-foreground text-pretty">
