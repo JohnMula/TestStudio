@@ -25,12 +25,41 @@ function initials(name: string): string {
   return (words[0]?.[0] ?? 'U') + (words[1]?.[0] ?? '')
 }
 
+// We don't know yet whether the loading skeleton should look like the
+// profile widget or the "Sign in" button — that's the whole thing being
+// loaded. So we remember the last resolved state and use it as a guess for
+// next time, correcting itself as soon as the real answer comes back. Purely
+// a UX nicety, so any storage failure (private browsing, etc.) just falls
+// back to the "signed out" shape.
+const AUTH_HINT_KEY = 'ts-auth-hint'
+
+function readAuthHint(): boolean {
+  try {
+    return window.localStorage.getItem(AUTH_HINT_KEY) === 'in'
+  } catch {
+    return false
+  }
+}
+
+function writeAuthHint(signedIn: boolean) {
+  try {
+    window.localStorage.setItem(AUTH_HINT_KEY, signedIn ? 'in' : 'out')
+  } catch {
+    // ignore — see comment above
+  }
+}
+
 export function AuthMenu() {
   const router = useRouter()
   const menuRef = useRef<HTMLDivElement>(null)
   const [user, setUser] = useState<User | null>(null)
   const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(true)
+  // Which skeleton shape to show while `loading` is true. Starts false so
+  // server-rendered and first-client-render markup match (no hydration
+  // mismatch); the real hint is applied inside the effect below, client-side
+  // only.
+  const [expectSignedIn, setExpectSignedIn] = useState(false)
   const [signingOut, setSigningOut] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -38,18 +67,24 @@ export function AuthMenu() {
     let active = true
     let unsubscribe: (() => void) | undefined
 
+    if (readAuthHint()) setExpectSignedIn(true)
+
     try {
       const supabase = createClient()
       void supabase.auth.getSession().then(({ data }) => {
         if (active) {
+          const signedIn = isSignedIn(data.session?.user ?? null)
           setUser(data.session?.user ?? null)
           setLoading(false)
+          writeAuthHint(signedIn)
         }
       })
       const { data } = supabase.auth.onAuthStateChange((_event, session) => {
         if (active) {
+          const signedIn = isSignedIn(session?.user ?? null)
           setUser(session?.user ?? null)
           setLoading(false)
+          writeAuthHint(signedIn)
         }
       })
       unsubscribe = () => data.subscription.unsubscribe()
@@ -95,7 +130,7 @@ export function AuthMenu() {
   }
 
   if (loading) {
-    return (
+    return expectSignedIn ? (
       <div
         role="status"
         aria-label="Loading account"
@@ -103,6 +138,14 @@ export function AuthMenu() {
       >
         <Skeleton className="size-6 shrink-0 rounded-full" />
         <Skeleton className="hidden h-3.5 w-14 sm:block" />
+      </div>
+    ) : (
+      <div
+        role="status"
+        aria-label="Loading account"
+        className="flex items-center rounded-[10px] border border-border bg-card px-3 py-2 shadow-soft"
+      >
+        <Skeleton className="h-3.5 w-14" />
       </div>
     )
   }
