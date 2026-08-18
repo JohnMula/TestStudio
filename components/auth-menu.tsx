@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { User } from '@supabase/supabase-js'
 import { ChevronDown, CircleUserRound, LogOut } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { Skeleton } from '@/components/skeleton'
 
 function isSignedIn(user: User | null): user is User {
   return Boolean(user && !user.is_anonymous)
@@ -94,7 +95,16 @@ export function AuthMenu() {
   }
 
   if (loading) {
-    return <span className="size-8 animate-pulse rounded-full bg-secondary" aria-label="Loading account" />
+    return (
+      <div
+        role="status"
+        aria-label="Loading account"
+        className="flex items-center gap-2 rounded-[10px] border border-border bg-card px-2 py-1.5 shadow-soft"
+      >
+        <Skeleton className="size-6 shrink-0 rounded-full" />
+        <Skeleton className="hidden h-3.5 w-14 sm:block" />
+      </div>
+    )
   }
 
   if (!isSignedIn(user)) {
