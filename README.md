@@ -13,7 +13,7 @@ TestStudio lets anyone build a test in a few minutes and hand it out with a shor
 **Creating a test**
 - Multiple question types: multiple choice, true/false, identification, matching, fill-in-the-blank, enumeration, and essay
 - Auto-grading for objective question types, with a simple review flow for essay/open-ended responses
-- Optional per-test settings: shuffle questions and/or answer choices, a time limit with auto-submit, single-attempt lock, and a scheduled open/close window
+- Optional per-test settings: shuffle questions and/or answer choices, a time limit with auto-submit, and a single-attempt lock
 - A personal question bank to reuse questions across tests
 - Drafts autosave as you build, and sync to your account once you sign in
 

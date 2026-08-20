@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import useSWR from 'swr'
-import { ArrowRight, Clock, Loader2, Lock, Trophy } from 'lucide-react'
+import { ArrowRight, Loader2, Lock, Trophy } from 'lucide-react'
 import { SiteHeader } from '@/components/site-header'
 import { TakeTestBodySkeleton } from '@/components/skeletons/take-test-skeleton'
 import { QuestionTaker } from '@/components/question-taker'
@@ -130,9 +130,6 @@ export default function TakeTestPage() {
     return <Shell code={code.toUpperCase()}><div className="flex flex-col items-center gap-4 py-12 text-center"><h1 className="font-heading text-xl font-semibold text-foreground">No test found for <span className="font-mono">{code.toUpperCase()}</span></h1><p className="text-sm text-muted-foreground">Double-check the code and try again.</p><Link href="/dashboard" className="rounded-[12px] bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground shadow-soft transition-opacity hover:opacity-90">Back to dashboard</Link></div></Shell>
   }
 
-  const now = Date.now()
-  const notYetOpen = test.opensAt ? now < test.opensAt : false
-  const closed = test.closesAt ? now > test.closesAt : false
   const orderedQuestions = order.map((index) => test.questions[index])
   const total = possiblePointsPublic(test)
   const answeredCount = orderedQuestions.filter((question) => answers[question.id] !== undefined).length
@@ -140,10 +137,6 @@ export default function TakeTestPage() {
     const review = result.questions.find((item) => item.questionId === question.id)
     return review ? [review] : []
   }) : []
-
-  if (notYetOpen || closed) {
-    return <Shell code={test.code}><section className="mx-auto flex max-w-lg flex-col items-center gap-4 rounded-[16px] border border-border bg-card p-6 text-center shadow-soft sm:p-10"><span className="flex size-12 items-center justify-center rounded-full bg-secondary text-muted-foreground">{notYetOpen ? <Clock className="size-6" aria-hidden /> : <Lock className="size-6" aria-hidden />}</span><h1 className="font-heading text-xl font-semibold text-foreground">{notYetOpen ? 'This test hasn’t opened yet' : 'This test is closed'}</h1><p className="text-sm text-muted-foreground">{notYetOpen ? `Opens ${new Date(test.opensAt!).toLocaleString()}.` : `Closed ${new Date(test.closesAt!).toLocaleString()}.`}</p></section></Shell>
-  }
 
   return (
     <Shell code={test.code}>

@@ -13,7 +13,6 @@ import {
   CopyPlus,
   Download,
   ChevronDown,
-  Calendar,
 } from 'lucide-react'
 import { SiteHeader } from '@/components/site-header'
 import { TicketCard } from '@/components/ticket-card'
@@ -214,13 +213,6 @@ function TestDetail() {
           Shuffle questions {test.shuffle ? 'on' : 'off'} · choices{' '}
           {test.shuffleChoices ? 'on' : 'off'}
         </p>
-        {test.opensAt || test.closesAt ? (
-          <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            <Calendar className="size-3.5 text-primary" aria-hidden />
-            {test.opensAt ? `Opens ${new Date(test.opensAt).toLocaleString()}` : 'Open now'}
-            {test.closesAt ? ` · Closes ${new Date(test.closesAt).toLocaleString()}` : ''}
-          </p>
-        ) : null}
       </div>
 
       <div className="grid gap-8 md:grid-cols-[minmax(0,1fr)_auto]">
