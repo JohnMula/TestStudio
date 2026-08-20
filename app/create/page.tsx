@@ -253,11 +253,6 @@ function CreateEditor() {
             setAutosaveState('saved')
             return
           }
-          if (result.needsSignIn) {
-            setSavedAt(Date.now())
-            setAutosaveState('local')
-            return
-          }
           setAutosaveState('error')
           setAutosaveError(result.error)
         })
@@ -422,9 +417,9 @@ function CreateEditor() {
         router.push(`/create?draft=${encodeURIComponent(result.draft.id)}`)
         return null
       }
-      if (!result.needsSignIn) return result.error
+      return result.error
     } catch {
-      // Anonymous creators can still use the browser-local draft flow.
+      // Network hiccup — keep the import working locally on this device.
     }
 
     draftIdRef.current = newDraftId

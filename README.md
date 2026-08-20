@@ -15,7 +15,7 @@ TestStudio lets anyone build a test in a few minutes and hand it out with a shor
 - Auto-grading for objective question types, with a simple review flow for essay/open-ended responses
 - Optional per-test settings: shuffle questions and/or answer choices, a time limit with auto-submit, and a single-attempt lock
 - A personal question bank to reuse questions across tests
-- Drafts autosave as you build, and sync to your account once you sign in
+- Drafts autosave as you build and show up on your Dashboard right away, even before you sign in; signing in carries them over to your account
 
 **Taking a test**
 - Join with a share code, a direct link, or by scanning a QR code with your camera
@@ -60,6 +60,7 @@ Apply the SQL migrations in `supabase/` via the Supabase SQL Editor, **in this e
 4. `feature10_11_drafts_attempt_history.sql`
 5. `feature12_test_descriptions.sql`
 6. `feature13_security_hardening.sql`
+7. `feature14_anonymous_drafts.sql`
 
 Create a `.env.local` file with the following variables:
 

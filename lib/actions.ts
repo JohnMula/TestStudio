@@ -481,12 +481,14 @@ export async function getTest(id: string): Promise<Test | null> {
 
 export type SaveDraftResult =
   | { ok: true; draft: TestDraft }
-  | { ok: false; error: string; needsSignIn?: boolean }
+  | { ok: false; error: string }
 
+/* Drafts are RLS-scoped the same way tests are (see createTest below) —
+   every browser, anonymous or signed-in, has an auth.uid() that can own a
+   draft, so these go through the plain per-request client rather than
+   getAuthenticatedClient(). */
 export async function listDrafts(): Promise<TestDraft[]> {
-  const { db, user } = await getAuthenticatedClient()
-  if (!user) return []
-
+  const db = await createClient()
   const { data, error } = await db
     .from('drafts')
     .select('*')
@@ -497,9 +499,7 @@ export async function listDrafts(): Promise<TestDraft[]> {
 
 export async function getDraft(id: string): Promise<TestDraft | null> {
   if (!isUuid(id)) return null
-  const { db, user } = await getAuthenticatedClient()
-  if (!user) return null
-
+  const db = await createClient()
   const { data, error } = await db
     .from('drafts')
     .select('*')
@@ -521,14 +521,7 @@ export async function saveServerDraft(
   const validationError = validateDraftData(input)
   if (validationError) return { ok: false, error: validationError }
 
-  const { db, user } = await getAuthenticatedClient()
-  if (!user) {
-    return {
-      ok: false,
-      needsSignIn: true,
-      error: 'Sign in to save drafts to your account.',
-    }
-  }
+  const db = await createClient()
 
   const payload = {
     title: input.title.trim() || 'Untitled test',
@@ -554,9 +547,11 @@ export async function saveServerDraft(
     // A browser creates its UUID before the first debounce fires. If two
     // overlapping autosaves arrive before the row exists, they both carry
     // that same id, so this insert path can never create duplicate drafts.
+    // owner_id isn't set explicitly — it defaults to auth.uid() at the
+    // database level, same as tests (see createTest).
     const { data: inserted, error: insertError } = await db
       .from('drafts')
-      .insert({ ...payload, id, owner_id: user.id })
+      .insert({ ...payload, id })
       .select('*')
       .single()
     if (inserted) return { ok: true, draft: mapDraft(inserted as DraftRow) }
@@ -573,7 +568,7 @@ export async function saveServerDraft(
 
   const { data, error } = await db
     .from('drafts')
-    .insert({ ...payload, owner_id: user.id })
+    .insert(payload)
     .select('*')
     .single()
   if (error) {
@@ -588,8 +583,7 @@ export async function deleteDraft(id: string): Promise<DeleteDraftResult> {
   if (!isUuid(id)) return { ok: false, error: 'This draft could not be found.' }
   const limited = await rateLimitDraftWrite()
   if (!limited.allowed) return { ok: false, error: limited.error }
-  const { db, user } = await getAuthenticatedClient()
-  if (!user) return { ok: false, error: 'Sign in to manage your drafts.' }
+  const db = await createClient()
 
   const { data, error } = await db
     .from('drafts')
