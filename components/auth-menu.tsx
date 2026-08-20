@@ -49,6 +49,17 @@ function writeAuthHint(signedIn: boolean) {
   }
 }
 
+// After the first page in a tab, the Supabase client already has the
+// session in memory, so getSession()/onAuthStateChange resolve in a
+// couple of milliseconds on every later page — too fast for the skeleton
+// above to actually be seen, even though it's the same component on every
+// page. Holding the skeleton up for at least this long makes the loading
+// state consistently visible everywhere (dashboard, settings, create,
+// take-test, ...), not just on a cold landing-page load. It never adds
+// latency beyond what a slow check would already take on its own — a
+// check that takes longer than this just resolves as soon as it's ready.
+const MIN_LOADING_MS = 400
+
 export function AuthMenu() {
   const router = useRouter()
   const menuRef = useRef<HTMLDivElement>(null)
@@ -67,34 +78,63 @@ export function AuthMenu() {
     let active = true
     let unsubscribe: (() => void) | undefined
 
+    // committed: the initial skeleton has been swapped for the real answer
+    // once already. haveAnswer/latestUser: the most recent thing Supabase
+    // told us, which may arrive before the minimum timer below is done.
+    let committed = false
+    let minTimerDone = false
+    let haveAnswer = false
+    let latestUser: User | null = null
+
+    function commitNow() {
+      if (!active) return
+      committed = true
+      const signedIn = isSignedIn(latestUser)
+      setUser(latestUser)
+      setLoading(false)
+      writeAuthHint(signedIn)
+    }
+
+    // getSession() and the initial onAuthStateChange event both fire for
+    // the same startup check (in either order), so this can be called more
+    // than once before anything is committed — harmless, since only the
+    // first commit matters. A change that arrives after that first commit
+    // is a genuine later event (signed in/out, session refreshed) and is
+    // applied immediately, with no artificial delay.
+    function onAnswer(nextUser: User | null) {
+      latestUser = nextUser
+      haveAnswer = true
+      if (committed) {
+        commitNow()
+        return
+      }
+      if (minTimerDone) commitNow()
+    }
+
+    const minTimer = setTimeout(() => {
+      minTimerDone = true
+      if (haveAnswer && !committed) commitNow()
+    }, MIN_LOADING_MS)
+
     if (readAuthHint()) setExpectSignedIn(true)
 
     try {
       const supabase = createClient()
       void supabase.auth.getSession().then(({ data }) => {
-        if (active) {
-          const signedIn = isSignedIn(data.session?.user ?? null)
-          setUser(data.session?.user ?? null)
-          setLoading(false)
-          writeAuthHint(signedIn)
-        }
+        onAnswer(data.session?.user ?? null)
       })
       const { data } = supabase.auth.onAuthStateChange((_event, session) => {
-        if (active) {
-          const signedIn = isSignedIn(session?.user ?? null)
-          setUser(session?.user ?? null)
-          setLoading(false)
-          writeAuthHint(signedIn)
-        }
+        onAnswer(session?.user ?? null)
       })
       unsubscribe = () => data.subscription.unsubscribe()
     } catch {
-      if (active) setLoading(false)
+      onAnswer(null)
     }
 
     return () => {
       active = false
       unsubscribe?.()
+      clearTimeout(minTimer)
     }
   }, [])
 
