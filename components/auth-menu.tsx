@@ -6,11 +6,8 @@ import { useEffect, useRef, useState } from 'react'
 import type { User } from '@supabase/supabase-js'
 import { ChevronDown, CircleUserRound, LogOut } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { isSignedIn, useAuth } from '@/components/auth-provider'
 import { Skeleton } from '@/components/skeleton'
-
-function isSignedIn(user: User | null): user is User {
-  return Boolean(user && !user.is_anonymous)
-}
 
 function displayName(user: User): string {
   const metadata = user.user_metadata as Record<string, unknown>
@@ -25,118 +22,13 @@ function initials(name: string): string {
   return (words[0]?.[0] ?? 'U') + (words[1]?.[0] ?? '')
 }
 
-// We don't know yet whether the loading skeleton should look like the
-// profile widget or the "Sign in" button — that's the whole thing being
-// loaded. So we remember the last resolved state and use it as a guess for
-// next time, correcting itself as soon as the real answer comes back. Purely
-// a UX nicety, so any storage failure (private browsing, etc.) just falls
-// back to the "signed out" shape.
-const AUTH_HINT_KEY = 'ts-auth-hint'
-
-function readAuthHint(): boolean {
-  try {
-    return window.localStorage.getItem(AUTH_HINT_KEY) === 'in'
-  } catch {
-    return false
-  }
-}
-
-function writeAuthHint(signedIn: boolean) {
-  try {
-    window.localStorage.setItem(AUTH_HINT_KEY, signedIn ? 'in' : 'out')
-  } catch {
-    // ignore — see comment above
-  }
-}
-
-// After the first page in a tab, the Supabase client already has the
-// session in memory, so getSession()/onAuthStateChange resolve in a
-// couple of milliseconds on every later page — too fast for the skeleton
-// above to actually be seen, even though it's the same component on every
-// page. Holding the skeleton up for at least this long makes the loading
-// state consistently visible everywhere (dashboard, settings, create,
-// take-test, ...), not just on a cold landing-page load. It never adds
-// latency beyond what a slow check would already take on its own — a
-// check that takes longer than this just resolves as soon as it's ready.
-const MIN_LOADING_MS = 400
-
 export function AuthMenu() {
   const router = useRouter()
   const menuRef = useRef<HTMLDivElement>(null)
-  const [user, setUser] = useState<User | null>(null)
+  const { user, loading, expectSignedIn } = useAuth()
   const [open, setOpen] = useState(false)
-  const [loading, setLoading] = useState(true)
-  // Which skeleton shape to show while `loading` is true. Starts false so
-  // server-rendered and first-client-render markup match (no hydration
-  // mismatch); the real hint is applied inside the effect below, client-side
-  // only.
-  const [expectSignedIn, setExpectSignedIn] = useState(false)
   const [signingOut, setSigningOut] = useState(false)
   const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    let active = true
-    let unsubscribe: (() => void) | undefined
-
-    // committed: the initial skeleton has been swapped for the real answer
-    // once already. haveAnswer/latestUser: the most recent thing Supabase
-    // told us, which may arrive before the minimum timer below is done.
-    let committed = false
-    let minTimerDone = false
-    let haveAnswer = false
-    let latestUser: User | null = null
-
-    function commitNow() {
-      if (!active) return
-      committed = true
-      const signedIn = isSignedIn(latestUser)
-      setUser(latestUser)
-      setLoading(false)
-      writeAuthHint(signedIn)
-    }
-
-    // getSession() and the initial onAuthStateChange event both fire for
-    // the same startup check (in either order), so this can be called more
-    // than once before anything is committed — harmless, since only the
-    // first commit matters. A change that arrives after that first commit
-    // is a genuine later event (signed in/out, session refreshed) and is
-    // applied immediately, with no artificial delay.
-    function onAnswer(nextUser: User | null) {
-      latestUser = nextUser
-      haveAnswer = true
-      if (committed) {
-        commitNow()
-        return
-      }
-      if (minTimerDone) commitNow()
-    }
-
-    const minTimer = setTimeout(() => {
-      minTimerDone = true
-      if (haveAnswer && !committed) commitNow()
-    }, MIN_LOADING_MS)
-
-    if (readAuthHint()) setExpectSignedIn(true)
-
-    try {
-      const supabase = createClient()
-      void supabase.auth.getSession().then(({ data }) => {
-        onAnswer(data.session?.user ?? null)
-      })
-      const { data } = supabase.auth.onAuthStateChange((_event, session) => {
-        onAnswer(session?.user ?? null)
-      })
-      unsubscribe = () => data.subscription.unsubscribe()
-    } catch {
-      onAnswer(null)
-    }
-
-    return () => {
-      active = false
-      unsubscribe?.()
-      clearTimeout(minTimer)
-    }
-  }, [])
 
   useEffect(() => {
     function closeOnOutsidePointer(event: PointerEvent) {
@@ -169,24 +61,17 @@ export function AuthMenu() {
     }
   }
 
+  // A single flat pulsing block sized like the eventual button — the same
+  // shape every other header/button skeleton in the app uses (see e.g. the
+  // "New test" and settings-icon skeletons on the dashboard), rather than a
+  // static bordered card with a smaller skeleton inside it.
   if (loading) {
-    return expectSignedIn ? (
-      <div
+    return (
+      <Skeleton
         role="status"
         aria-label="Loading account"
-        className="flex items-center gap-2 rounded-[10px] border border-border bg-card px-2 py-1.5 shadow-soft"
-      >
-        <Skeleton className="size-6 shrink-0 rounded-full" />
-        <Skeleton className="hidden h-3.5 w-14 sm:block" />
-      </div>
-    ) : (
-      <div
-        role="status"
-        aria-label="Loading account"
-        className="flex items-center rounded-[10px] border border-border bg-card px-3 py-2 shadow-soft"
-      >
-        <Skeleton className="h-3.5 w-14" />
-      </div>
+        className={expectSignedIn ? 'h-9 w-9 rounded-[10px] sm:w-28' : 'h-9 w-20 rounded-[10px]'}
+      />
     )
   }
 

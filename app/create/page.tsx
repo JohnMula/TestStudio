@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { ArrowLeft, Eye, Library, Check, X, Plus, Upload } from 'lucide-react'
 import { SiteHeader } from '@/components/site-header'
+import { useAuth } from '@/components/auth-provider'
 import { TypePicker } from '@/components/type-picker'
 import { QuestionEditor } from '@/components/question-editor'
 import { BankDialog } from '@/components/bank-dialog'
@@ -75,6 +76,7 @@ function CreateEditor() {
   const [bankOpen, setBankOpen] = useState(false)
   const [bankTarget, setBankTarget] = useState<Question | null>(null)
 
+  const { loading: authLoading } = useAuth()
   const [loaded, setLoaded] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [savedAt, setSavedAt] = useState<number | null>(null)
@@ -534,7 +536,7 @@ function CreateEditor() {
       />
 
       <main className="mx-auto max-w-3xl px-4 py-8 sm:px-6 sm:py-10">
-        {!loaded ? (
+        {!loaded || authLoading ? (
           <CreateBodySkeleton />
         ) : loadError ? (
           <div className="flex flex-col items-center gap-4 rounded-[16px] border border-border bg-card px-6 py-20 text-center shadow-soft">

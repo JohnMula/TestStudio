@@ -15,6 +15,7 @@ import {
   ChevronDown,
 } from 'lucide-react'
 import { SiteHeader } from '@/components/site-header'
+import { useAuth } from '@/components/auth-provider'
 import { TicketCard } from '@/components/ticket-card'
 import {
   useTest,
@@ -96,6 +97,7 @@ function TestDetail() {
   const search = useSearchParams()
   const router = useRouter()
   const { test, isLoading } = useTest(params.id)
+  const { loading: authLoading } = useAuth()
   const [copied, setCopied] = useState(false)
   const [expanded, setExpanded] = useState<string | null>(null)
   const [origin, setOrigin] = useState('')
@@ -110,7 +112,7 @@ function TestDetail() {
   const justCreated = search.get('created') === '1'
   const justUpdated = search.get('updated') === '1'
 
-  if (isLoading) {
+  if (isLoading || authLoading) {
     return (
       <div className="mx-auto flex max-w-4xl flex-col gap-6 px-4 py-8 sm:px-6 sm:py-10">
         <div className="flex flex-col gap-2">

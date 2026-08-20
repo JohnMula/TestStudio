@@ -5,38 +5,7 @@ import type { ReactNode } from 'react'
 import { Check, Info } from 'lucide-react'
 import { SettingsBodySkeleton } from '@/components/skeletons/settings-skeleton'
 import { loadSettings, saveSettings, type AppSettings } from '@/lib/store'
-import { createClient } from '@/lib/supabase/client'
-
-/* Mirrors the isSignedIn check in components/auth-menu.tsx: a real
-   account, not the anonymous session every browser gets by default. */
-function useSignedIn(): boolean {
-  const [signedIn, setSignedIn] = useState(false)
-
-  useEffect(() => {
-    let active = true
-    let unsubscribe: (() => void) | undefined
-    try {
-      const supabase = createClient()
-      void supabase.auth.getSession().then(({ data }) => {
-        if (active) {
-          setSignedIn(Boolean(data.session?.user && !data.session.user.is_anonymous))
-        }
-      })
-      const { data } = supabase.auth.onAuthStateChange((_event, session) => {
-        if (active) setSignedIn(Boolean(session?.user && !session.user.is_anonymous))
-      })
-      unsubscribe = () => data.subscription.unsubscribe()
-    } catch {
-      // Supabase isn't configured — treat as signed out, same as AuthMenu does.
-    }
-    return () => {
-      active = false
-      unsubscribe?.()
-    }
-  }, [])
-
-  return signedIn
-}
+import { isSignedIn, useAuth } from '@/components/auth-provider'
 
 /* ---------- small primitives ---------- */
 
@@ -194,7 +163,8 @@ const TIME_OPTIONS = ['Off', '15m', '30m', '60m'] as const
 type TimeOpt = (typeof TIME_OPTIONS)[number]
 
 export function SettingsView() {
-  const signedIn = useSignedIn()
+  const { user, loading: authLoading } = useAuth()
+  const signedIn = isSignedIn(user)
   const [timeLimit, setTimeLimit] = useState<TimeOpt>('15m')
   const [shuffle, setShuffle] = useState(true)
   const [shuffleChoices, setShuffleChoices] = useState(true)
@@ -228,7 +198,7 @@ export function SettingsView() {
     setTimeout(() => setSaved(false), 2000)
   }
 
-  if (!loaded) return <SettingsBodySkeleton />
+  if (!loaded || authLoading) return <SettingsBodySkeleton />
 
   return (
     <div className="flex flex-col gap-6">

@@ -17,6 +17,7 @@ import {
   Users,
 } from 'lucide-react'
 import { SiteHeader } from '@/components/site-header'
+import { useAuth } from '@/components/auth-provider'
 import { DashboardSkeleton } from '@/components/skeletons/dashboard-skeleton'
 import {
   clearDraft,
@@ -53,6 +54,7 @@ function formatSavedAt(value: number): string {
 }
 
 export default function DashboardPage() {
+  const { loading: authLoading } = useAuth()
   const { tests, isLoading: testsLoading } = useTests()
   const { attempts, isLoading: attemptsLoading } = useTakenTests()
   const { drafts, isLoading: draftsLoading } = useDrafts()
@@ -105,7 +107,7 @@ export default function DashboardPage() {
     }
   }
 
-  if (testsLoading || attemptsLoading || draftsLoading) {
+  if (authLoading || testsLoading || attemptsLoading || draftsLoading) {
     return <DashboardSkeleton />
   }
 

@@ -2,6 +2,7 @@ import { Analytics } from '@vercel/analytics/next'
 import type { Metadata, Viewport } from 'next'
 import { headers } from 'next/headers'
 import { Sora, Manrope, IBM_Plex_Mono } from 'next/font/google'
+import { AuthProvider } from '@/components/auth-provider'
 import './globals.css'
 
 const sora = Sora({
@@ -82,7 +83,7 @@ export default async function RootLayout({
       className={`${sora.variable} ${manrope.variable} ${plexMono.variable} bg-background`}
     >
       <body className="font-sans antialiased">
-        {children}
+        <AuthProvider>{children}</AuthProvider>
         {process.env.NODE_ENV === 'production' && <Analytics />}
       </body>
     </html>

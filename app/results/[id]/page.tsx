@@ -6,6 +6,7 @@ import useSWR from 'swr'
 import { ArrowLeft, Clock, RotateCcw, Trophy } from 'lucide-react'
 import { ResultQuestionCard } from '@/components/result-question-card'
 import { SiteHeader } from '@/components/site-header'
+import { useAuth } from '@/components/auth-provider'
 import { ResultsBodySkeleton } from '@/components/skeletons/results-skeleton'
 import { getAttempt } from '@/lib/store'
 
@@ -21,6 +22,7 @@ export default function AttemptResultPage() {
     params.id ? ['attempt', params.id] : null,
     () => getAttempt(params.id),
   )
+  const { loading: authLoading } = useAuth()
 
   return (
     <div className="min-h-screen bg-background">
@@ -34,7 +36,7 @@ export default function AttemptResultPage() {
         }
       />
       <main className="mx-auto max-w-2xl px-4 py-8 sm:px-6 sm:py-12">
-        {isLoading ? (
+        {isLoading || authLoading ? (
           <ResultsBodySkeleton />
         ) : !attempt ? (
           <div className="flex flex-col items-center gap-4 rounded-[16px] border border-border bg-card px-6 py-20 text-center shadow-soft">

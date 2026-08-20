@@ -6,6 +6,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import useSWR from 'swr'
 import { ArrowRight, Loader2, Lock, Trophy } from 'lucide-react'
 import { SiteHeader } from '@/components/site-header'
+import { useAuth } from '@/components/auth-provider'
 import { TakeTestBodySkeleton } from '@/components/skeletons/take-test-skeleton'
 import { QuestionTaker } from '@/components/question-taker'
 import { ResultQuestionCard } from '@/components/result-question-card'
@@ -35,6 +36,7 @@ export default function TakeTestPage() {
   const params = useParams<{ code: string }>()
   const code = decodeURIComponent(params.code)
   const { data: test, isLoading } = useSWR(['public-test', code], () => getPublicTestByCode(code))
+  const { loading: authLoading } = useAuth()
   const [stage, setStage] = useState<Stage>('intro')
   const [name, setName] = useState('')
   const [answers, setAnswers] = useState<Record<string, unknown>>({})
@@ -123,7 +125,7 @@ export default function TakeTestPage() {
     }
   }
 
-  if (isLoading) {
+  if (isLoading || authLoading) {
     return <Shell code={code.toUpperCase()}><TakeTestBodySkeleton /></Shell>
   }
   if (!test) {
