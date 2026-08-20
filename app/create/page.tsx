@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Suspense, useCallback, useEffect, useRef, useState } from 'react'
-import { ArrowLeft, Eye, Library, Check, X, Plus, Calendar, Upload } from 'lucide-react'
+import { ArrowLeft, Eye, Library, Check, X, Plus, Upload } from 'lucide-react'
 import { SiteHeader } from '@/components/site-header'
 import { TypePicker } from '@/components/type-picker'
 import { QuestionEditor } from '@/components/question-editor'
@@ -639,58 +639,6 @@ function CreateEditor() {
             checked={singleAttempt}
             onChange={setSingleAttempt}
           />
-        </section>
-
-        {/* sharing, scheduling & branding — available to everyone */}
-        <section className="mb-6 flex flex-col gap-5 rounded-[16px] border border-border bg-card p-4 shadow-soft sm:p-6">
-          <span className="font-mono text-xs uppercase tracking-[0.15em] text-muted-foreground">
-            Sharing &amp; scheduling
-          </span>
-          <p className="-mt-2 text-xs text-muted-foreground text-pretty">
-            Set a memorable code and an optional open/close window. No account
-            needed to take the test.
-          </p>
-
-          {/* custom code */}
-          <label className="flex flex-col gap-2">
-            <span className="text-sm font-medium text-foreground">
-              Custom share code
-            </span>
-            <input
-              value={customCode}
-              onChange={(e) => setCustomCode(e.target.value)}
-              placeholder="e.g. mrsmith-algebra1 — or leave blank for a random one"
-              className={`${fieldCls} font-mono`}
-            />
-          </label>
-
-          {/* scheduling */}
-          <div className="grid gap-4 sm:grid-cols-2">
-            <label className="flex flex-col gap-2">
-              <span className="flex items-center gap-2 text-sm font-medium text-foreground">
-                <Calendar className="size-3.5 text-primary" aria-hidden />
-                Auto-open
-              </span>
-              <input
-                type="datetime-local"
-                value={opensAt}
-                onChange={(e) => setOpensAt(e.target.value)}
-                className={`${fieldCls} w-full`}
-              />
-            </label>
-            <label className="flex flex-col gap-2">
-              <span className="flex items-center gap-2 text-sm font-medium text-foreground">
-                <Calendar className="size-3.5 text-primary" aria-hidden />
-                Auto-close
-              </span>
-              <input
-                type="datetime-local"
-                value={closesAt}
-                onChange={(e) => setClosesAt(e.target.value)}
-                className={`${fieldCls} w-full`}
-              />
-            </label>
-          </div>
         </section>
 
         {/* assist bar */}
